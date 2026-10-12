@@ -20,7 +20,7 @@ export const atomData = {
   remove: (collection: string,id: string) => request('delete',collection,id),
 };
 `;
-export const template: Record<string,string> = {
+export const template: Record<string, string> = {
   'src/main.tsx': `import React from 'react';\nimport { createRoot } from 'react-dom/client';\nimport App from './App';\nimport './styles.css';\ncreateRoot(document.getElementById('root')!).render(<React.StrictMode><App /></React.StrictMode>);\n`,
   'src/App.tsx': `export default function App() { return <main><h1>Let's build something.</h1><p>Your app will appear here.</p></main>; }\n`,
   'src/styles.css': `*{box-sizing:border-box}body{margin:0;font-family:Inter,system-ui,sans-serif;color:#14231b;background:#f8faf9}button,input{font:inherit}button{cursor:pointer}main{padding:48px}\n`,

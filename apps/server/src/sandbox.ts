@@ -7,34 +7,108 @@ import { config } from './config.ts';
 import { inlinePreview, redactError, safeFile, sourceHash } from './guards.ts';
 import { DATA_BRIDGE } from './template.ts';
 export type BuildResult = { ok: boolean; log: string; html?: string; hash: string };
-export async function build(files: Record<string,string>, signal: AbortSignal): Promise<BuildResult> {
-  const directory = config.sandboxRoot || (process.platform === 'darwin' ? join(homedir(),'.cache','atoms-builds') : tmpdir()); await mkdir(directory,{recursive:true});
-  const base = await mkdtemp(join(directory,'atoms-')); const source = join(base,'input'); const out = join(base,'output');
+export async function build(
+  files: Record<string, string>,
+  signal: AbortSignal,
+): Promise<BuildResult> {
+  const directory =
+    config.sandboxRoot ||
+    (process.platform === 'darwin' ? join(homedir(), '.cache', 'atoms-builds') : tmpdir());
+  await mkdir(directory, { recursive: true });
+  const base = await mkdtemp(join(directory, 'atoms-'));
+  const source = join(base, 'input');
+  const out = join(base, 'output');
   const name = `atoms-build-${randomUUID()}`;
   try {
-    await mkdir(source); await mkdir(out); await chmod(base,0o755); await chmod(out,0o777);
-    for (const [path,content] of Object.entries(files)) {
+    await mkdir(source);
+    await mkdir(out);
+    await chmod(base, 0o755);
+    await chmod(out, 0o777);
+    for (const [path, content] of Object.entries(files)) {
       if (path !== 'src/atom-data.ts') safeFile(path);
       else if (content !== DATA_BRIDGE) throw new Error('Data bridge was modified');
-      await mkdir(join(source,path,'..'),{ recursive:true }); await writeFile(join(source,path),content);
+      await mkdir(join(source, path, '..'), { recursive: true });
+      await writeFile(join(source, path), content);
     }
     const hash = sourceHash(files);
-    const result = await new Promise<{ code:number;log:string }>((resolve,reject) => {
-      const child = spawn('docker',['run','--rm','--name',name,'--network','none','--memory','512m','--cpus','1','--pids-limit','128','--read-only','--cap-drop','ALL','--security-opt','no-new-privileges','--user','1000:1000','--tmpfs','/work:rw,size=268435456,uid=1000,gid=1000','--tmpfs','/tmp:rw,size=67108864,uid=1000,gid=1000','-v',`${source}:/input:ro`,'-v',`${out}:/output:rw`,config.sandboxImage],{ stdio:['ignore','pipe','pipe'] });
-      let log = ''; const collect = (chunk: Buffer) => { log = (log+chunk.toString()).slice(-12000); };
-      child.stdout.on('data',collect); child.stderr.on('data',collect);
-      const abort = () => { spawn('docker',['rm','-f',name],{ stdio:'ignore' }).on('error',()=>{}); child.kill('SIGTERM'); };
-      const timeout = setTimeout(abort,75_000); signal.addEventListener('abort',abort,{ once:true });
-      child.on('error',error=>{clearTimeout(timeout);signal.removeEventListener('abort',abort);reject(error);}); child.on('close',code => { clearTimeout(timeout); signal.removeEventListener('abort',abort); resolve({ code:code ?? 1,log:redactError(log) }); });
+    const result = await new Promise<{ code: number; log: string }>((resolve, reject) => {
+      const child = spawn(
+        'docker',
+        [
+          'run',
+          '--rm',
+          '--name',
+          name,
+          '--network',
+          'none',
+          '--memory',
+          '512m',
+          '--cpus',
+          '1',
+          '--pids-limit',
+          '128',
+          '--read-only',
+          '--cap-drop',
+          'ALL',
+          '--security-opt',
+          'no-new-privileges',
+          '--user',
+          '1000:1000',
+          '--tmpfs',
+          '/work:rw,size=268435456,uid=1000,gid=1000',
+          '--tmpfs',
+          '/tmp:rw,size=67108864,uid=1000,gid=1000',
+          '-v',
+          `${source}:/input:ro`,
+          '-v',
+          `${out}:/output:rw`,
+          config.sandboxImage,
+        ],
+        { stdio: ['ignore', 'pipe', 'pipe'] },
+      );
+      let log = '';
+      const collect = (chunk: Buffer) => {
+        log = (log + chunk.toString()).slice(-12000);
+      };
+      child.stdout.on('data', collect);
+      child.stderr.on('data', collect);
+      const abort = () => {
+        spawn('docker', ['rm', '-f', name], { stdio: 'ignore' }).on('error', () => {});
+        child.kill('SIGTERM');
+      };
+      const timeout = setTimeout(abort, 75_000);
+      signal.addEventListener('abort', abort, { once: true });
+      child.on('error', (error) => {
+        clearTimeout(timeout);
+        signal.removeEventListener('abort', abort);
+        reject(error);
+      });
+      child.on('close', (code) => {
+        clearTimeout(timeout);
+        signal.removeEventListener('abort', abort);
+        resolve({ code: code ?? 1, log: redactError(log) });
+      });
       if (signal.aborted) abort();
     });
     if (signal.aborted) throw new Error('任务已停止。');
-    if (result.code !== 0) return { ok:false,log:result.log || '隔离构建未完成。',hash };
-    const scriptPath = join(out,'app.js'); const stylePath = join(out,'app.css');
-    if (!(await lstat(scriptPath)).isFile() || (await lstat(scriptPath)).isSymbolicLink()) throw new Error('Invalid build artifact');
-    const js = await readFile(scriptPath,'utf8'); let css = '';
-    try { const info = await lstat(stylePath); if (!info.isFile() || info.isSymbolicLink()) throw new Error('Invalid CSS artifact'); css = await readFile(stylePath,'utf8'); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
-    if (js.length > 5_000_000 || css.length > 1_000_000) throw new Error('Build artifact exceeds limit');
-    return { ok:true,log:result.log,html:inlinePreview(js,css),hash };
-  } finally { await rm(base,{ recursive:true,force:true }); }
+    if (result.code !== 0) return { ok: false, log: result.log || '隔离构建未完成。', hash };
+    const scriptPath = join(out, 'app.js');
+    const stylePath = join(out, 'app.css');
+    if (!(await lstat(scriptPath)).isFile() || (await lstat(scriptPath)).isSymbolicLink())
+      throw new Error('Invalid build artifact');
+    const js = await readFile(scriptPath, 'utf8');
+    let css = '';
+    try {
+      const info = await lstat(stylePath);
+      if (!info.isFile() || info.isSymbolicLink()) throw new Error('Invalid CSS artifact');
+      css = await readFile(stylePath, 'utf8');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+    if (js.length > 5_000_000 || css.length > 1_000_000)
+      throw new Error('Build artifact exceeds limit');
+    return { ok: true, log: result.log, html: inlinePreview(js, css), hash };
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
 }

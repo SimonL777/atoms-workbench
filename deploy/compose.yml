@@ -4,7 +4,7 @@ services:
     profiles: [tools]
     image: atoms-sandbox:local
     build: ./sandbox
-    entrypoint: ["true"]
+    entrypoint: ['true']
   api:
     image: atoms-server:local
     build:
@@ -16,14 +16,20 @@ services:
       BUILD_SHA: ${BUILD_SHA:-development}
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://localhost:8787/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://localhost:8787/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
       interval: 15s
       timeout: 5s
       retries: 5
   worker:
     image: atoms-server:local
     user: root
-    command: ["npm", "run", "worker"]
+    command: ['npm', 'run', 'worker']
     env_file: ${ATOMS_ENV_FILE:-../.env.local}
     environment:
       SANDBOX_ROOT: /var/lib/atoms-builds
@@ -41,8 +47,8 @@ services:
       dockerfile: deploy/Dockerfile.web
     environment:
       APP_DOMAIN: ${APP_DOMAIN:-localhost}
-    ports: ["80:80", "443:443", "443:443/udp"]
-    volumes: ["caddy_data:/data", "caddy_config:/config"]
+    ports: ['80:80', '443:443', '443:443/udp']
+    volumes: ['caddy_data:/data', 'caddy_config:/config']
     restart: unless-stopped
     depends_on:
       api:

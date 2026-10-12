@@ -3,8 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "workspaces": ["apps/web", "apps/server", "packages/shared"],
-  "engines": { "node": ">=22.12.0" },
+  "workspaces": [
+    "apps/web",
+    "apps/server",
+    "packages/shared"
+  ],
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "scripts": {
     "dev": "concurrently -n api,web 'npm run dev -w apps/server' 'npm run dev -w apps/web'",
     "worker": "npm run worker -w apps/server",

@@ -40,3 +40,5 @@ jobs:
       - run: node scripts/test-database.mjs
       - run: npx playwright install --with-deps chromium
       - run: npx playwright test tests/e2e/sandbox.spec.ts
+      - run: docker build -t atoms-server:ci -f deploy/Dockerfile.server .
+      - run: docker build -t atoms-web:ci -f deploy/Dockerfile.web .
