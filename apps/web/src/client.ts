@@ -5,6 +5,8 @@ export let auth: SupabaseClient | undefined;
 export async function getConfig(): Promise<PublicConfig> {
   let config: PublicConfig;
   try {
+    if (import.meta.env.VITE_STATIC_PREVIEW === 'true' && !apiBase)
+      throw new Error('Static preview');
     const res = await fetch(`${apiBase}/api/config`, { signal: AbortSignal.timeout(8000) });
     if (!res.ok) throw new Error();
     config = await res.json();

@@ -18,6 +18,14 @@ try {
     if (!response.ok || !(await response.text()).includes('root'))
       throw new Error('Web document unavailable');
   });
+  if (process.env.VERIFY_BUILD_SHA)
+    await check('web_revision', async () => {
+      const html = await (await fetch(base, { signal: AbortSignal.timeout(20000) })).text();
+      const revision = html.match(/<meta name="atoms-build" content="([^"]+)"/i)?.[1];
+      if (revision !== process.env.VERIFY_BUILD_SHA)
+        throw new Error('Unexpected deployed frontend revision');
+      report.build_sha = revision;
+    });
   if (process.env.VERIFY_STATIC_ONLY === 'true') {
     await check('static_entry_assets', async () => {
       const html = await (await fetch(base)).text();

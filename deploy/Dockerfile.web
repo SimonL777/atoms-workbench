@@ -9,6 +9,8 @@ COPY tsconfig.base.json ./
 COPY apps/web apps/web
 COPY packages/shared packages/shared
 ENV VITE_API_URL="" VITE_DEMO_MODE="false"
+ARG BUILD_SHA=development
+ENV VITE_BUILD_SHA=${BUILD_SHA}
 RUN npm run build
 FROM caddy:2-alpine
 COPY --from=build /app/apps/web/dist /srv

@@ -30,6 +30,8 @@ jobs:
         env:
           VITE_BASE_PATH: /${{ github.event.repository.name }}/
           VITE_DEMO_MODE: 'true'
+          VITE_STATIC_PREVIEW: 'true'
+          VITE_BUILD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
           VITE_API_URL: ${{ vars.VITE_API_URL }}
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
@@ -62,6 +64,7 @@ jobs:
         env:
           VERIFY_URL: ${{ needs.deploy.outputs.url }}
           VERIFY_STATIC_ONLY: 'true'
+          VERIFY_BUILD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
