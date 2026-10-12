@@ -1,0 +1,15 @@
+FROM docker:29-cli AS docker-cli
+FROM node:24-bookworm-slim
+WORKDIR /app
+COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
+COPY package.json package-lock.json ./
+COPY tsconfig.base.json ./
+COPY apps/server/package.json apps/server/package.json
+COPY apps/web/package.json apps/web/package.json
+COPY packages/shared/package.json packages/shared/package.json
+RUN npm ci --ignore-scripts && npm cache clean --force
+COPY apps/server apps/server
+COPY packages/shared packages/shared
+COPY references/superpowers-v7 references/superpowers-v7
+USER node
+CMD ["npm","run","start","-w","apps/server"]

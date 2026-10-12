@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+coverage/
+playwright-report/
+test-results/
+.DS_Store
+.runtime/
+.artifacts/
+# Private planning material is not part of the open-source distribution.
+docs/overall-plan.md
+docs/skill-reuse-research.md
+

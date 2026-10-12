@@ -1,0 +1,35 @@
+{
+  "repository": "https://github.com/obra/superpowers",
+  "version": "v7.0.0",
+  "commit": "bb92a77741419a4ab5f06e711a283343f1ada0c3",
+  "retrieved_at": "2026-10-12",
+  "license": "MIT",
+  "purpose": "Reference source only; not installed or activated",
+  "files": [
+    {
+      "path": "LICENSE",
+      "source_url": "https://github.com/obra/superpowers/blob/bb92a77741419a4ab5f06e711a283343f1ada0c3/LICENSE",
+      "sha256": "a37e0e9697144819e1d965176ac4ae5bc3fa02d11e7812036bbcadf6dafe2400"
+    },
+    {
+      "path": "skills/brainstorming/SKILL.md",
+      "source_url": "https://github.com/obra/superpowers/blob/bb92a77741419a4ab5f06e711a283343f1ada0c3/skills/brainstorming/SKILL.md",
+      "sha256": "6ee10d1481b8a2580d5336ff66c5c08acc9d4b251b13bbc3bfd31be99c261d43"
+    },
+    {
+      "path": "skills/brainstorming/builder-check-prompt.md",
+      "source_url": "https://github.com/obra/superpowers/blob/bb92a77741419a4ab5f06e711a283343f1ada0c3/skills/brainstorming/builder-check-prompt.md",
+      "sha256": "36d51a4723d6f0a3ce5811a0ea3b3a8424f07533947e1355f5d8cb8cce40c55e"
+    },
+    {
+      "path": "skills/brainstorming/visual-companion.md",
+      "source_url": "https://github.com/obra/superpowers/blob/bb92a77741419a4ab5f06e711a283343f1ada0c3/skills/brainstorming/visual-companion.md",
+      "sha256": "6ffcb038b53254bd31debaa15e12dcd4ff24bd63d690e0b644ac6396701cf2e2"
+    },
+    {
+      "path": "skills/writing-plans/SKILL.md",
+      "source_url": "https://github.com/obra/superpowers/blob/bb92a77741419a4ab5f06e711a283343f1ada0c3/skills/writing-plans/SKILL.md",
+      "sha256": "a6c67c1900064347c2a329990dd3c555657c51c3ec53b259a08aa01a2c26139a"
+    }
+  ]
+}

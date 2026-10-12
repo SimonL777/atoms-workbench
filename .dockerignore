@@ -1,0 +1,9 @@
+.git
+**/node_modules
+**/dist
+.env*
+.artifacts
+playwright-report
+test-results
+docs/overall-plan.md
+docs/skill-reuse-research.md

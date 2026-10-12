@@ -1,0 +1,14 @@
+{
+  "name": "@atoms/server", "version": "0.1.0", "private": true, "type": "module",
+  "scripts": {
+    "dev": "tsx watch --env-file-if-exists=../../.env.local src/api.ts",
+    "start": "tsx --env-file-if-exists=../../.env.local src/api.ts",
+    "worker": "tsx --env-file-if-exists=../../.env.local src/worker.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@atoms/shared": "*", "@fastify/cors": "^11.0.0", "@fastify/rate-limit": "^10.0.0",
+    "@supabase/supabase-js": "^2.117.3", "fastify": "^5.12.5", "tsx": "^4.20.0", "zod": "^4.0.0"
+  },
+  "devDependencies": { "@types/node": "^24.0.0" }
+}

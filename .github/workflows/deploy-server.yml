@@ -1,0 +1,57 @@
+name: Deploy production server
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: production
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck && npm test && npm run build && npm run verify:secrets
+      - name: Prepare authenticated transport
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          SERVER_ENV: ${{ secrets.SERVER_ENV }}
+        run: |
+          test -n "$DEPLOY_SSH_KEY" && test -n "$DEPLOY_KNOWN_HOSTS" && test -n "$SERVER_ENV"
+          install -m 700 -d ~/.ssh .runtime
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/atoms_deploy
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          printf '%s\n' "$SERVER_ENV" > .runtime/server.env
+          chmod 600 ~/.ssh/atoms_deploy ~/.ssh/known_hosts .runtime/server.env
+          git archive --format=tar.gz HEAD > .runtime/source.tar.gz
+      - name: Deploy exact revision over SSH
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+        run: |
+          test -n "$DEPLOY_HOST" && test -n "$DEPLOY_USER"
+          task_port="${DEPLOY_PORT:-22}"
+          ssh -i ~/.ssh/atoms_deploy -p "$task_port" -o StrictHostKeyChecking=yes "$DEPLOY_USER@$DEPLOY_HOST" 'mkdir -p /srv/atoms-workbench/shared /srv/atoms-workbench/incoming'
+          scp -i ~/.ssh/atoms_deploy -P "$task_port" -o StrictHostKeyChecking=yes .runtime/source.tar.gz "$DEPLOY_USER@$DEPLOY_HOST:/srv/atoms-workbench/incoming/source.tar.gz"
+          scp -i ~/.ssh/atoms_deploy -P "$task_port" -o StrictHostKeyChecking=yes .runtime/server.env "$DEPLOY_USER@$DEPLOY_HOST:/srv/atoms-workbench/shared/server.env"
+          ssh -i ~/.ssh/atoms_deploy -p "$task_port" -o StrictHostKeyChecking=yes "$DEPLOY_USER@$DEPLOY_HOST" "chmod 600 /srv/atoms-workbench/shared/server.env; mkdir -p /srv/atoms-workbench/releases/$GITHUB_SHA; tar -xzf /srv/atoms-workbench/incoming/source.tar.gz -C /srv/atoms-workbench/releases/$GITHUB_SHA; bash /srv/atoms-workbench/releases/$GITHUB_SHA/scripts/deploy-server.sh $GITHUB_SHA"
+      - name: Verify production API and real model delivery
+        run: npm run verify:online
+        env:
+          VERIFY_URL: ${{ vars.PRODUCTION_URL }}
+          VERIFY_BUILD_SHA: ${{ github.sha }}
+          VERIFY_AUTH_EMAIL: ${{ secrets.VERIFY_AUTH_EMAIL }}
+          VERIFY_AUTH_PASSWORD: ${{ secrets.VERIFY_AUTH_PASSWORD }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: production-verification
+          path: .artifacts/online-verification.json
