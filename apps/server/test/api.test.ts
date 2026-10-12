@@ -1,7 +1,21 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { setTimeout as pause } from 'node:timers/promises';
+test('server rejects elevated keys in public configuration before opening a listener', () => {
+  const header = Buffer.from(JSON.stringify({ alg: 'HS256' })).toString('base64url');
+  const payload = Buffer.from(JSON.stringify({ role: 'service_role' })).toString('base64url');
+  for (const key of ['sb_secret_test-only', `${header}.${payload}.test-only`]) {
+    const result = spawnSync(process.execPath, ['--import', 'tsx', 'apps/server/src/api.ts'], {
+      env: { ...process.env, SUPABASE_PUBLISHABLE_KEY: key },
+      encoding: 'utf8',
+      timeout: 5000,
+    });
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /must be a publishable or anon key/);
+    assert.ok(!result.stderr.includes(key));
+  }
+});
 test('unconfigured API exposes readiness without credentials and rejects project access', async () => {
   const port = 21000 + Math.floor(Math.random() * 15000);
   const child = spawn(process.execPath, ['--import', 'tsx', 'apps/server/src/api.ts'], {

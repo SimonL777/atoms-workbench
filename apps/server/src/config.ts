@@ -15,6 +15,18 @@ export const config = {
   demo: process.env.ALLOW_DEMO !== 'false',
   build: process.env.BUILD_SHA || 'development',
 };
+// /api/config is public. Reject elevated keys before the server can expose them.
+let elevatedPublicKey = config.publicKey.startsWith('sb_secret_');
+if (config.publicKey.startsWith('eyJ')) {
+  try {
+    const payload = JSON.parse(Buffer.from(config.publicKey.split('.')[1], 'base64url').toString());
+    elevatedPublicKey ||= payload.role === 'service_role';
+  } catch {
+    // The Auth provider will reject malformed publishable keys; never log their value.
+  }
+}
+if (elevatedPublicKey)
+  throw new Error('SUPABASE_PUBLISHABLE_KEY must be a publishable or anon key.');
 export const persistenceReady = Boolean(
   config.supabaseUrl && config.publicKey && config.serviceKey,
 );

@@ -15,7 +15,7 @@ export const demos = [
     description: '把值得读的内容留在一起',
     category: '个人空间',
     color: 'lavender',
-    prompt: '做一个阅读收藏应用，可以添加文章、标记已读，并按分类筛选。',
+    prompt: '做一个阅读收藏应用，可以添加文章、标记已读，并按阅读状态筛选。',
     icon: 'reading',
   },
   {
