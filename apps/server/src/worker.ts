@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import type { Run, Snapshot } from '@atoms/shared';
-import { config, modelReady, persistenceReady } from './config.ts';
+import { config, executionLimits, modelReady, persistenceReady } from './config.ts';
 import { checked, db } from './db.ts';
 import { model, type ChatMessage, brainstormTools, buildTools } from './model.ts';
 import { build, type BuildResult } from './sandbox.ts';
@@ -25,7 +25,15 @@ async function execute(task: Task) {
   );
   let checkpoint: Checkpoint | undefined;
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), config.timeout);
+  const timeout = setTimeout(
+    () =>
+      controller.abort(
+        new Error(
+          `任务执行已超过 ${Math.ceil(config.timeout / 60_000)} 分钟，可从已保存的检查点重试。`,
+        ),
+      ),
+    config.timeout,
+  );
   let files = { ...template };
   let context: ChatMessage[] = [];
   let answeredQuestionId: string | undefined;
@@ -50,12 +58,27 @@ async function execute(task: Task) {
         .select('id'),
     );
     if (!data.length) {
-      controller.abort();
-      throw new Error('Run lease lost');
+      const error = new Error('任务已取消或执行权已变更。');
+      controller.abort(error);
+      throw error;
     }
   };
+  let heartbeatBusy = false;
+  let heartbeatFailures = 0;
   const heartbeat = setInterval(() => {
-    void update({ heartbeat_at: new Date().toISOString() }).catch(() => controller.abort());
+    if (heartbeatBusy || controller.signal.aborted) return;
+    heartbeatBusy = true;
+    void update({ heartbeat_at: new Date().toISOString() })
+      .then(() => {
+        heartbeatFailures = 0;
+      })
+      .catch(() => {
+        if (++heartbeatFailures >= 3 && !controller.signal.aborted)
+          controller.abort(new Error('连续三次无法更新任务心跳，请检查数据库连接后重试。'));
+      })
+      .finally(() => {
+        heartbeatBusy = false;
+      });
   }, 10_000);
   const event = async (kind: string, summary: string) => {
     await update({ phase: summary, heartbeat_at: new Date().toISOString() });
@@ -156,7 +179,7 @@ async function execute(task: Task) {
     }
     await event('started', task.kind === 'brainstorm' ? '理解你的想法' : '准备开发工作区');
     for (let step = 0; step < config.maxSteps; step++) {
-      if (controller.signal.aborted) throw new Error('任务已停止或超过执行时限。');
+      if (controller.signal.aborted) throw controller.signal.reason;
       const answer = await model(
         context,
         task.kind === 'brainstorm' ? brainstormTools : buildTools,
@@ -254,10 +277,10 @@ async function execute(task: Task) {
             }
             case 'write_file': {
               const { path, content } = z
-                .object({ path: z.string(), content: z.string().max(120000) })
+                .object({ path: z.string(), content: z.string().max(config.maxFileChars) })
                 .parse(args);
               safeFile(path);
-              if (Object.keys(files).length > 80 && !(path in files))
+              if (Object.keys(files).length >= config.maxProjectFiles && !(path in files))
                 throw new Error('Project file limit reached');
               files[path] = content;
               lastBuild = undefined;
@@ -267,7 +290,8 @@ async function execute(task: Task) {
               break;
             }
             case 'run_build': {
-              if (++builds > 3) throw new Error('构建修复次数已达到上限。');
+              if (++builds > config.maxBuilds)
+                throw new Error(`构建次数已达到 ${config.maxBuilds} 次上限，可从检查点重试。`);
               await event('build', '运行类型检查与隔离构建');
               lastBuild = await build(files, controller.signal);
               await event(
@@ -330,10 +354,12 @@ async function execute(task: Task) {
         await update({ context, files });
       }
     }
-    throw new Error('任务达到执行步数上限，请缩小范围后重试。');
+    throw new Error(`任务达到 ${config.maxSteps} 轮模型调用上限，可从检查点重试。`);
   } catch (error) {
     const detail = redactError(
-      controller.signal.aborted ? '任务已停止或超过执行时限。' : (error as Error).message,
+      controller.signal.aborted
+        ? (controller.signal.reason as Error)?.message || '任务已停止。'
+        : (error as Error).message,
     );
     await fileStore
       .saveCheckpoint(project.owner_id, task.project_id, task.id, {
@@ -375,7 +401,7 @@ if (!persistenceReady || !modelReady) {
   );
   process.exit(1);
 }
-console.log('Agent Worker ready.');
+console.log('Agent Worker ready.', JSON.stringify(executionLimits));
 while (true) {
   try {
     const tasks = checked(await db().rpc('claim_run', { worker: workerId })) as Task[];

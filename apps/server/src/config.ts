@@ -1,5 +1,11 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+function capacity(name: string, fallback: number, integer = true) {
+  const value = Number(process.env[name] || fallback);
+  if (!Number.isFinite(value) || value <= 0 || (integer && !Number.isSafeInteger(value)))
+    throw new Error(`${name} must be a positive ${integer ? 'integer' : 'number'}.`);
+  return value;
+}
 export const config = {
   port: Number(process.env.PORT || 8787),
   origin: process.env.APP_ORIGIN || 'http://localhost:5173',
@@ -14,10 +20,38 @@ export const config = {
   sandboxRoot: process.env.SANDBOX_ROOT || '',
   projectRoot:
     process.env.PROJECT_FILES_ROOT || join(homedir(), '.local', 'share', 'atoms-workbench'),
-  maxSteps: Number(process.env.MAX_RUN_STEPS || 32),
-  timeout: Number(process.env.RUN_TIMEOUT_MS || 300_000),
+  maxSteps: capacity('MAX_RUN_STEPS', 128),
+  timeout: capacity('RUN_TIMEOUT_MS', 1_800_000),
+  maxBuilds: capacity('MAX_BUILD_ATTEMPTS', 10),
+  buildTimeout: capacity('BUILD_TIMEOUT_MS', 300_000),
+  sandboxMemoryMb: capacity('SANDBOX_MEMORY_MB', 2048),
+  sandboxCpus: capacity('SANDBOX_CPUS', 2, false),
+  sandboxPids: capacity('SANDBOX_PIDS_LIMIT', 512),
+  sandboxWorkMb: capacity('SANDBOX_WORK_MB', 1024),
+  sandboxTmpMb: capacity('SANDBOX_TMP_MB', 256),
+  maxProjectFiles: capacity('MAX_PROJECT_FILES', 200),
+  maxFileChars: capacity('MAX_SOURCE_FILE_CHARS', 500_000),
+  maxArtifactBytes: capacity('MAX_LOCAL_ARTIFACT_BYTES', 128 * 1024 * 1024),
+  maxJsBytes: capacity('MAX_PREVIEW_JS_BYTES', 20 * 1024 * 1024),
+  maxCssBytes: capacity('MAX_PREVIEW_CSS_BYTES', 5 * 1024 * 1024),
+  apiRateLimit: capacity('API_REQUESTS_PER_MINUTE', 300),
+  apiBodyLimit: capacity('API_BODY_LIMIT_BYTES', 2 * 1024 * 1024),
   demo: process.env.ALLOW_DEMO !== 'false',
   build: process.env.BUILD_SHA || 'development',
+};
+// Safe operational metadata: never include credentials or provider configuration.
+export const executionLimits = {
+  runTimeoutMs: config.timeout,
+  maxModelRounds: config.maxSteps,
+  maxBuildAttempts: config.maxBuilds,
+  buildTimeoutMs: config.buildTimeout,
+  sandboxMemoryMb: config.sandboxMemoryMb,
+  sandboxCpus: config.sandboxCpus,
+  sandboxPids: config.sandboxPids,
+  maxProjectFiles: config.maxProjectFiles,
+  maxSourceFileChars: config.maxFileChars,
+  maxLocalArtifactBytes: config.maxArtifactBytes,
+  apiRequestsPerMinute: config.apiRateLimit,
 };
 // /api/config is public. Reject elevated keys before the server can expose them.
 let elevatedPublicKey = config.publicKey.startsWith('sb_secret_');

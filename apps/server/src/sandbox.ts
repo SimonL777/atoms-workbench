@@ -42,11 +42,11 @@ export async function build(
           '--network',
           'none',
           '--memory',
-          '512m',
+          `${config.sandboxMemoryMb}m`,
           '--cpus',
-          '1',
+          String(config.sandboxCpus),
           '--pids-limit',
-          '128',
+          String(config.sandboxPids),
           '--read-only',
           '--cap-drop',
           'ALL',
@@ -55,9 +55,9 @@ export async function build(
           '--user',
           '1000:1000',
           '--tmpfs',
-          '/work:rw,size=268435456,uid=1000,gid=1000',
+          `/work:rw,size=${config.sandboxWorkMb * 1024 * 1024},uid=1000,gid=1000`,
           '--tmpfs',
-          '/tmp:rw,size=67108864,uid=1000,gid=1000',
+          `/tmp:rw,size=${config.sandboxTmpMb * 1024 * 1024},uid=1000,gid=1000`,
           '-v',
           `${source}:/input:ro`,
           '-v',
@@ -76,7 +76,11 @@ export async function build(
         spawn('docker', ['rm', '-f', name], { stdio: 'ignore' }).on('error', () => {});
         child.kill('SIGTERM');
       };
-      const timeout = setTimeout(abort, 75_000);
+      let timedOut = false;
+      const timeout = setTimeout(() => {
+        timedOut = true;
+        abort();
+      }, config.buildTimeout);
       signal.addEventListener('abort', abort, { once: true });
       child.on('error', (error) => {
         clearTimeout(timeout);
@@ -86,7 +90,12 @@ export async function build(
       child.on('close', (code) => {
         clearTimeout(timeout);
         signal.removeEventListener('abort', abort);
-        resolve({ code: code ?? 1, log: redactError(log) });
+        resolve({
+          code: timedOut ? 124 : (code ?? 1),
+          log: timedOut
+            ? `隔离构建超过 ${Math.ceil(config.buildTimeout / 60_000)} 分钟，请重试或调整 BUILD_TIMEOUT_MS。`
+            : redactError(log),
+        });
       });
       if (signal.aborted) abort();
     });
@@ -105,7 +114,7 @@ export async function build(
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     }
-    if (js.length > 5_000_000 || css.length > 1_000_000)
+    if (Buffer.byteLength(js) > config.maxJsBytes || Buffer.byteLength(css) > config.maxCssBytes)
       throw new Error('Build artifact exceeds limit');
     return { ok: true, log: result.log, html: inlinePreview(js, css), hash };
   } finally {

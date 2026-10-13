@@ -2,7 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests/live',
-  timeout: 1_200_000,
+  timeout: Number(process.env.RUN_TIMEOUT_MS || 1_800_000) * 3 + 180_000,
   workers: 1,
   retries: 0,
   use: {

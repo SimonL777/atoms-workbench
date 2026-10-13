@@ -60,7 +60,8 @@ export function createFileStore(root: string) {
     const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
     try {
       const info = await handle.stat();
-      if (!info.isFile() || info.size > 20_000_000) throw new Error('Invalid local artifact');
+      if (!info.isFile() || info.size > config.maxArtifactBytes)
+        throw new Error('Invalid local artifact');
       return JSON.parse(await handle.readFile('utf8')) as T;
     } finally {
       await handle.close();
@@ -69,7 +70,7 @@ export function createFileStore(root: string) {
   async function atomic(path: string, value: unknown) {
     const temporary = `${path}.${randomUUID()}.tmp`;
     const content = JSON.stringify(value);
-    if (Buffer.byteLength(content) > 20_000_000)
+    if (Buffer.byteLength(content) > config.maxArtifactBytes)
       throw new Error('Local checkpoint exceeds size limit');
     try {
       await writeFile(temporary, content, { mode: 0o600, flag: 'wx' });
@@ -95,6 +96,9 @@ export function createFileStore(root: string) {
       await atomic(join(path, 'checkpoint.json'), checkpoint);
     },
     async saveVersion(owner: string, project: string, version: string, snapshot: Snapshot) {
+      const serialized = JSON.stringify(snapshot);
+      if (Buffer.byteLength(serialized) > config.maxArtifactBytes)
+        throw new Error('Local version exceeds size limit');
       const path = join(projectPath(owner, project), 'versions', id(version));
       await directory(path);
       // Publishing a version is immutable: an existing snapshot is never overwritten.
@@ -107,7 +111,7 @@ export function createFileStore(root: string) {
         await writeFile(join(source, file), content, { mode: 0o600, flag: 'wx' });
       }
       await writeFile(join(path, 'preview.html'), snapshot.html, { mode: 0o600, flag: 'wx' });
-      await writeFile(join(path, 'snapshot.json'), JSON.stringify(snapshot), {
+      await writeFile(join(path, 'snapshot.json'), serialized, {
         mode: 0o600,
         flag: 'wx',
       });

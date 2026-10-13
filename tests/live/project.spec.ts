@@ -50,7 +50,7 @@ test('real local Agent completes guided requirements, a notes app and an iterati
   let projectId: string;
   const item = () => api<ProjectDetail>(`/projects/${projectId}`);
   async function waitFor(predicate: (detail: ProjectDetail) => boolean) {
-    const deadline = Date.now() + 400_000;
+    const deadline = Date.now() + Number(process.env.RUN_TIMEOUT_MS || 1_800_000) + 60_000;
     while (Date.now() < deadline) {
       const detail = await item();
       if (['failed', 'interrupted', 'cancelled'].includes(detail.runs[0]?.status))

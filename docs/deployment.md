@@ -41,9 +41,15 @@ MODEL_BASE_URL=
 MODEL_API_KEY=
 MODEL_NAME=
 ALLOW_DEMO=false
-RUN_TIMEOUT_MS=300000
-MAX_RUN_STEPS=32
+RUN_TIMEOUT_MS=1800000
+MAX_RUN_STEPS=128
+MAX_BUILD_ATTEMPTS=10
+BUILD_TIMEOUT_MS=300000
+SANDBOX_MEMORY_MB=2048
+SANDBOX_CPUS=2
 ```
+
+Execution defaults are 30 minutes per active task segment, 128 model rounds and 10 builds. Each build has 5 minutes, 2 CPU, 2 GB memory and 512 processes. Waiting for a requirement answer releases the Worker and resets the active-segment timer on resume. Source capacity is 200 files, 500,000 characters per file and 128 MB per local checkpoint/version. All thresholds can be set through the server environment; see `.env.example`. Restart the API and Worker after changing them. Supabase heartbeat expiry still fences stale Workers after 90 seconds; increasing a task's duration does not extend an abandoned lease.
 
 Configure the production Site URL and redirect allowlist in Supabase Auth. Registration may require email confirmation. Verify with a dedicated real mailbox and SMTP; a login check alone does not verify email delivery or signup.
 

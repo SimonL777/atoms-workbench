@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import { z, ZodError } from 'zod';
-import { config, HttpError, modelReady, persistenceReady } from './config.ts';
+import { config, executionLimits, HttpError, modelReady, persistenceReady } from './config.ts';
 import { checked, db, owner } from './db.ts';
 import { fileStore } from './file-store.ts';
 const uuid = z.string().uuid();
@@ -10,14 +10,14 @@ const input = z.string().trim().min(1).max(12000);
 const params = z.object({ id: uuid });
 const server = Fastify({
   logger: { level: 'info', redact: ['req.headers.authorization', 'req.headers.cookie'] },
-  bodyLimit: 256_000,
+  bodyLimit: config.apiBodyLimit,
 });
 await server.register(cors, {
   origin: config.origin.split(','),
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 });
-await server.register(rateLimit, { max: 90, timeWindow: '1 minute' });
+await server.register(rateLimit, { max: config.apiRateLimit, timeWindow: '1 minute' });
 server.setErrorHandler((error, _req, reply) => {
   const status = error instanceof ZodError ? 400 : (error as HttpError).statusCode || 500;
   reply.code(status).send({
@@ -38,6 +38,7 @@ server.get('/api/health', async () => ({
   build: config.build,
   persistence: persistenceReady,
   model: modelReady,
+  executionLimits,
 }));
 server.get('/api/config', async () => ({
   supabaseUrl: config.supabaseUrl,
