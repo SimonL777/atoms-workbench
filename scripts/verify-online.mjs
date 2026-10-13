@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 const base = process.env.VERIFY_URL?.replace(/\/$/, '');
+const backend = process.env.VERIFY_API_URL?.replace(/\/$/, '');
 if (!base) throw new Error('Set VERIFY_URL to the deployment URL.');
 const report = { url: base, checked_at: new Date().toISOString(), checks: [], full_flow: false };
 async function check(name, fn) {
@@ -26,6 +27,51 @@ try {
         throw new Error('Unexpected deployed frontend revision');
       report.build_sha = revision;
     });
+  // Validate the Pages-to-backend connection without creating tasks or calling a model.
+  if (backend) {
+    const origin = new URL(base).origin;
+    await check('backend_ready', async () => {
+      if (new URL(base).protocol === 'https:' && new URL(backend).protocol !== 'https:')
+        throw new Error('HTTPS frontend requires an HTTPS backend');
+      const response = await fetch(`${backend}/api/health`, {
+        signal: AbortSignal.timeout(20000),
+      });
+      if (!response.ok) throw new Error('Backend unavailable');
+      const health = await response.json();
+      if (!health.ok || !health.persistence || !health.model)
+        throw new Error('Backend configuration incomplete');
+    });
+    await check('backend_configuration', async () => {
+      const response = await fetch(`${backend}/api/config`, {
+        headers: { Origin: origin },
+        signal: AbortSignal.timeout(20000),
+      });
+      if (!response.ok) throw new Error('Backend configuration unavailable');
+      const config = await response.json();
+      if (!config.configured || !config.modelReady)
+        throw new Error('Backend is not ready for real projects');
+      if (process.env.VERIFY_SUPABASE_URL && config.supabaseUrl !== process.env.VERIFY_SUPABASE_URL)
+        throw new Error('Frontend and backend use different Supabase projects');
+      if (response.headers.get('access-control-allow-origin') !== origin)
+        throw new Error('Backend does not allow the frontend origin');
+    });
+    await check('backend_authenticated_cors', async () => {
+      const response = await fetch(`${backend}/api/projects`, {
+        method: 'OPTIONS',
+        headers: {
+          Origin: origin,
+          'Access-Control-Request-Method': 'GET',
+          'Access-Control-Request-Headers': 'authorization,content-type',
+        },
+        signal: AbortSignal.timeout(20000),
+      });
+      const headers = (response.headers.get('access-control-allow-headers') || '')
+        .toLowerCase().split(',').map((header) => header.trim());
+      if (!response.ok || response.headers.get('access-control-allow-origin') !== origin ||
+          !headers.includes('authorization') || !headers.includes('content-type'))
+        throw new Error('Authenticated browser requests are not allowed');
+    });
+  }
   if (process.env.VERIFY_STATIC_ONLY === 'true') {
     await check('static_entry_assets', async () => {
       const html = await (await fetch(base)).text();

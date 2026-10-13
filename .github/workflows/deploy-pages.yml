@@ -67,6 +67,8 @@ jobs:
           VERIFY_URL: ${{ needs.deploy.outputs.url }}
           VERIFY_STATIC_ONLY: 'true'
           VERIFY_BUILD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          VERIFY_API_URL: ${{ vars.VITE_API_URL }}
+          VERIFY_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
       - name: Prepare a confirmed acceptance account (no email or model calls)
         if: vars.VITE_SUPABASE_URL != ''
         run: npm run prepare:auth

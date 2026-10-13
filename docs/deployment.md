@@ -9,6 +9,12 @@ The default deployment is the frontend with explicit prepared examples. It is no
 - `VITE_API_URL`: HTTPS URL of your deployed backend.
 - `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`: public Auth configuration, useful if the frontend is hosted independently.
 
+Setting `VITE_API_URL` connects the complete workbench to that API: account-owned project lists, conversations, requirement answers, versions, source downloads, previews and follow-up development. `VITE_STATIC_PREVIEW` only enables a fallback when no backend is connected; it does not remove these features. Restrict the API's `APP_ORIGIN` to the frontend origin (for this Pages site: `https://simonl777.github.io`, without the repository path). Add the exact site URL to Supabase Auth's redirect allowlist as well.
+
+The API and Worker must use the same Supabase project and the same project-files directory. To keep existing locally generated projects available, connect to the host that owns their files, or migrate that directory before changing hosts. Publishing the frontend does not upload project source or model credentials. A frontend hosted on HTTPS needs a reachable HTTPS API; a desktop-hosted API requires an HTTPS tunnel and must stay running while the site is used. A persistent server and stable domain are preferable for a lasting deployment.
+
+When a backend URL is configured, deployment verifies its health, public configuration, matching Supabase project and authenticated CORS support. These checks do not call a model or create a project. Online acceptance still tests Auth only; all development features remain available to users.
+
 Never use service-role, secret or model keys as `VITE_*` variables. Set the server-only `AUTH_TEST_SUPABASE_SECRET` repository secret for the dedicated demo project. When Auth variables are configured, Actions creates a synthetic signup account using an admin-generated confirmation link (no mail), confirms it through the public Auth API, tests real UI login/refresh/logout and checks the registration form, then deletes that marked test account. Traces, screenshots and videos are disabled for Auth tests. SMTP delivery and public email signup still require a separate receiving-mailbox check.
 
 ## Full deployment on a Docker server
