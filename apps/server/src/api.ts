@@ -4,7 +4,7 @@ import rateLimit from '@fastify/rate-limit';
 import { z, ZodError } from 'zod';
 import { config, HttpError, modelReady, persistenceReady } from './config.ts';
 import { checked, db, owner } from './db.ts';
-import type { Run, Snapshot } from '@atoms/shared';
+import { fileStore } from './file-store.ts';
 const uuid = z.string().uuid();
 const input = z.string().trim().min(1).max(12000);
 const params = z.object({ id: uuid });
@@ -20,16 +20,14 @@ await server.register(cors, {
 await server.register(rateLimit, { max: 90, timeWindow: '1 minute' });
 server.setErrorHandler((error, _req, reply) => {
   const status = error instanceof ZodError ? 400 : (error as HttpError).statusCode || 500;
-  reply
-    .code(status)
-    .send({
-      error:
-        error instanceof ZodError
-          ? '请求参数无效。'
-          : status < 500 || status === 503
-            ? (error as Error).message
-            : '请求未完成，请稍后重试。',
-    });
+  reply.code(status).send({
+    error:
+      error instanceof ZodError
+        ? '请求参数无效。'
+        : status < 500 || status === 503
+          ? (error as Error).message
+          : '请求未完成，请稍后重试。',
+  });
 });
 server.addHook('onSend', async (_req, reply) => {
   reply.header('Cache-Control', 'no-store');
@@ -44,7 +42,7 @@ server.get('/api/health', async () => ({
 server.get('/api/config', async () => ({
   supabaseUrl: config.supabaseUrl,
   supabaseKey: config.publicKey,
-  configured: persistenceReady,
+  configured: persistenceReady && !(await db().from('projects').select('id').limit(0)).error,
   modelReady,
   demoEnabled: config.demo,
   build: config.build,
@@ -208,18 +206,26 @@ server.post('/api/runs/:id/answer', async (req) => {
   const actor = await user(req);
   const { id } = params.parse(req.params);
   const run = checked(await db().from('runs').select('*').eq('id', id).single());
-  const project = await owner(run.project_id, actor.id);
+  await owner(run.project_id, actor.id);
   const body = z.object({ answer: input, question_id: uuid }).parse(req.body);
   if (run.status !== 'waiting_for_user' || run.question?.id !== body.question_id)
     throw new HttpError(409, '该问题已回答或已过期。');
-  const context = [
-    ...run.context,
-    { role: 'tool', tool_call_id: run.question.tool_call_id, content: body.answer },
-  ];
+  const checkpoint = await fileStore.loadCheckpoint(actor.id, run.project_id, id);
+  if (!checkpoint?.context.length)
+    throw new HttpError(503, '本地任务检查点缺失，请检查项目文件目录。');
   const updated = checked(
     await db()
       .from('runs')
-      .update({ status: 'queued', question: null, context, phase: '继续整理需求' })
+      .update({
+        status: 'queued',
+        question: null,
+        resume_answer: {
+          question_id: body.question_id,
+          tool_call_id: run.question.tool_call_id,
+          answer: body.answer,
+        },
+        phase: '继续整理需求',
+      })
       .eq('id', id)
       .eq('status', 'waiting_for_user')
       .select('id'),
@@ -267,16 +273,23 @@ server.post('/api/runs/:id/retry', async (req) => {
   // Reuse safe file checkpoints, not partially completed external tool calls.
   if (run.base_version_id !== project.current_version_id)
     throw new HttpError(409, '项目版本已变化，请在当前版本上重新描述修改。');
+  const checkpoint = await fileStore.loadCheckpoint(actor.id, run.project_id, id);
+  if (checkpoint)
+    await fileStore.saveCheckpoint(actor.id, run.project_id, body.request_id, {
+      files: checkpoint.files,
+      context: [],
+      baseVersionId: run.base_version_id,
+    });
   return checked(
     await db()
       .from('runs')
       .insert({
+        id: body.request_id,
         project_id: run.project_id,
         request_id: body.request_id,
         kind: run.kind,
         input: run.input,
         spec_id: run.spec_id,
-        files: run.files,
         base_version_id: run.base_version_id,
       })
       .select('*')
@@ -290,15 +303,22 @@ server.get('/api/projects/:id/versions/:version', async (req) => {
   const item = checked(
     await db().from('project_versions').select('*').eq('id', version).eq('project_id', id).single(),
   );
-  const blob = await db().storage.from('project-artifacts').download(item.artifact_path);
-  if (blob.error || !blob.data) throw new HttpError(503, '版本产物读取失败。');
-  return JSON.parse(await blob.data.text()) as Snapshot;
+  try {
+    return await fileStore.loadVersion(actor.id, id, item.id);
+  } catch {
+    throw new HttpError(503, '本地版本产物缺失，请检查项目文件目录或备份。');
+  }
 });
 server.post('/api/projects/:id/restore', async (req) => {
   const actor = await user(req);
   const { id } = params.parse(req.params);
   await owner(id, actor.id);
   const { version_id } = z.object({ version_id: uuid }).parse(req.body);
+  try {
+    await fileStore.loadVersion(actor.id, id, version_id);
+  } catch {
+    throw new HttpError(503, '本地版本产物缺失，无法恢复该版本。');
+  }
   checked(await db().rpc('restore_version', { target_project: id, target_version: version_id }));
   return { ok: true };
 });

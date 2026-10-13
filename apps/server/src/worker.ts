@@ -9,24 +9,41 @@ import { model, type ChatMessage, brainstormTools, buildTools } from './model.ts
 import { build, type BuildResult } from './sandbox.ts';
 import { safeFile, sourceHash, redactError } from './guards.ts';
 import { template } from './template.ts';
-type Task = Run & { context: ChatMessage[]; files: Record<string, string>; lease_owner: string };
+import { fileStore, type Checkpoint } from './file-store.ts';
+type Task = Run & {
+  lease_owner: string;
+  resume_answer?: { question_id: string; tool_call_id: string; answer: string } | null;
+};
 const workerId = randomUUID();
 const root = fileURLToPath(new URL('../../../', import.meta.url));
 const skillRoot = `${root}references/superpowers-v7/skills/`;
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function execute(task: Task) {
+  const project = checked(
+    await db().from('projects').select('*').eq('id', task.project_id).single(),
+  );
+  let checkpoint: Checkpoint | undefined;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.timeout);
-  let files = { ...template, ...task.files };
-  let context = task.context;
+  let files = { ...template };
+  let context: ChatMessage[] = [];
+  let answeredQuestionId: string | undefined;
   let lastBuild: BuildResult | undefined;
   let builds = 0;
   const update = async (values: Record<string, unknown>) => {
+    const { context: savedContext, files: savedFiles, ...metadata } = values;
+    if (savedContext || savedFiles)
+      await fileStore.saveCheckpoint(project.owner_id, task.project_id, task.id, {
+        files,
+        context,
+        baseVersionId: task.base_version_id,
+        answeredQuestionId,
+      });
     const data = checked(
       await db()
         .from('runs')
-        .update(values)
+        .update({ ...metadata, heartbeat_at: new Date().toISOString() })
         .eq('id', task.id)
         .eq('status', 'running')
         .eq('lease_owner', workerId)
@@ -74,26 +91,32 @@ async function execute(task: Task) {
     );
   };
   try {
+    checkpoint = await fileStore.loadCheckpoint(project.owner_id, task.project_id, task.id);
+    if (checkpoint) {
+      files = { ...template, ...checkpoint.files };
+      context = checkpoint.context;
+      answeredQuestionId = checkpoint.answeredQuestionId;
+    }
+    if (task.resume_answer) {
+      if (!context.length) throw new Error('本地任务检查点缺失，无法恢复提问。');
+      if (answeredQuestionId !== task.resume_answer.question_id) {
+        context.push({
+          role: 'tool',
+          tool_call_id: task.resume_answer.tool_call_id,
+          content: task.resume_answer.answer,
+        });
+        answeredQuestionId = task.resume_answer.question_id;
+      }
+      await update({ context, files, resume_answer: null });
+    }
     if (!context.length) {
-      const project = checked(
-        await db().from('projects').select('*').eq('id', task.project_id).single(),
-      );
-      if (Object.keys(task.files).length && task.base_version_id !== project.current_version_id)
+      if (checkpoint && checkpoint.baseVersionId !== project.current_version_id)
         throw new Error('项目版本已变化，请在当前版本上发起新的修改。');
       task.base_version_id = project.current_version_id;
-      if (project.current_version_id && !Object.keys(task.files).length) {
-        const version = checked(
-          await db()
-            .from('project_versions')
-            .select('artifact_path')
-            .eq('id', project.current_version_id)
-            .single(),
-        );
-        const artifact = await db()
-          .storage.from('project-artifacts')
-          .download(version.artifact_path);
-        if (artifact.error || !artifact.data) throw new Error('基准版本读取失败。');
-        files = (JSON.parse(await artifact.data.text()) as Snapshot).files;
+      if (project.current_version_id && !checkpoint) {
+        files = (
+          await fileStore.loadVersion(project.owner_id, task.project_id, project.current_version_id)
+        ).files;
       }
       const specs = checked(
         await db()
@@ -260,15 +283,13 @@ async function execute(task: Task) {
                 throw new Error('Current source must pass run_build before publish');
               await event('artifact', '保存源码与预览产物');
               const versionId = randomUUID();
-              const artifactPath = `${task.project_id}/${versionId}/snapshot.json`;
               const snapshot: Snapshot = { files, html: lastBuild.html, summary };
-              const uploaded = await db()
-                .storage.from('project-artifacts')
-                .upload(artifactPath, JSON.stringify(snapshot), {
-                  contentType: 'application/json',
-                  upsert: false,
-                });
-              if (uploaded.error) throw new Error('产物保存失败，请重试保存。');
+              const artifactPath = await fileStore.saveVersion(
+                project.owner_id,
+                task.project_id,
+                versionId,
+                snapshot,
+              );
               checked(
                 await db().rpc('publish_version', {
                   target_run: task.id,
@@ -314,12 +335,19 @@ async function execute(task: Task) {
     const detail = redactError(
       controller.signal.aborted ? '任务已停止或超过执行时限。' : (error as Error).message,
     );
+    await fileStore
+      .saveCheckpoint(project.owner_id, task.project_id, task.id, {
+        files,
+        context,
+        baseVersionId: task.base_version_id,
+        answeredQuestionId,
+      })
+      .catch(() => {});
     const result = await db()
       .from('runs')
       .update({
         status: 'failed',
         error: detail,
-        files,
         phase: '需要处理',
         finished_at: new Date().toISOString(),
       })

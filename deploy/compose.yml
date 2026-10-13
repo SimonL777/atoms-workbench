@@ -3,18 +3,41 @@ services:
   sandbox-image:
     profiles: [tools]
     image: atoms-sandbox:local
-    build: ./sandbox
+    build:
+      context: ./sandbox
+      args:
+        NODE_IMAGE: ${SANDBOX_NODE_IMAGE:-node:24-alpine}
     entrypoint: ['true']
+  storage-init:
+    image: atoms-server:local
+    user: root
+    entrypoint: ['sh', '-c']
+    command:
+      [
+        'chown -R 1000:1000 /var/lib/atoms-projects /var/lib/atoms-builds && chmod 700 /var/lib/atoms-projects && chmod 755 /var/lib/atoms-builds',
+      ]
+    volumes:
+      - project_files:/var/lib/atoms-projects
+      - /var/lib/atoms-builds:/var/lib/atoms-builds
   api:
     image: atoms-server:local
     build:
       context: ..
       dockerfile: deploy/Dockerfile.server
+      args:
+        NODE_IMAGE: ${SERVER_NODE_IMAGE:-node:24-bookworm-slim}
+        DOCKER_CLI_IMAGE: ${DOCKER_CLI_IMAGE:-docker:29-cli}
     env_file: ${ATOMS_ENV_FILE:-../.env.local}
     environment:
       PORT: 8787
       BUILD_SHA: ${BUILD_SHA:-development}
+      PROJECT_FILES_ROOT: /var/lib/atoms-projects
+    volumes:
+      - project_files:/var/lib/atoms-projects
     restart: unless-stopped
+    depends_on:
+      storage-init:
+        condition: service_completed_successfully
     healthcheck:
       test:
         [
@@ -28,17 +51,22 @@ services:
       retries: 5
   worker:
     image: atoms-server:local
-    user: root
+    user: '1000:1000'
+    group_add: ['${DOCKER_SOCKET_GID:-0}']
     command: ['npm', 'run', 'worker']
     env_file: ${ATOMS_ENV_FILE:-../.env.local}
     environment:
       SANDBOX_ROOT: /var/lib/atoms-builds
       SANDBOX_IMAGE: atoms-sandbox:local
+      PROJECT_FILES_ROOT: /var/lib/atoms-projects
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /var/lib/atoms-builds:/var/lib/atoms-builds
+      - project_files:/var/lib/atoms-projects
     restart: unless-stopped
     depends_on:
+      storage-init:
+        condition: service_completed_successfully
       api:
         condition: service_healthy
   web:
@@ -47,6 +75,8 @@ services:
       dockerfile: deploy/Dockerfile.web
       args:
         BUILD_SHA: ${BUILD_SHA:-development}
+        NODE_IMAGE: ${SERVER_NODE_IMAGE:-node:24-bookworm-slim}
+        CADDY_IMAGE: ${WEB_RUNTIME_IMAGE:-caddy:2-alpine}
     environment:
       APP_DOMAIN: ${APP_DOMAIN:-localhost}
     ports: ['80:80', '443:443', '443:443/udp']
@@ -56,5 +86,6 @@ services:
       api:
         condition: service_healthy
 volumes:
+  project_files:
   caddy_data:
   caddy_config:

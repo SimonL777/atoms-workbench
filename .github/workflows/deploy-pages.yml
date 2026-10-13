@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   build:
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -60,13 +60,38 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+          cache: npm
+      - run: npm ci
       - run: npm run verify:online
         env:
           VERIFY_URL: ${{ needs.deploy.outputs.url }}
           VERIFY_STATIC_ONLY: 'true'
           VERIFY_BUILD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - name: Prepare a confirmed acceptance account (no email or model calls)
+        if: vars.VITE_SUPABASE_URL != ''
+        run: npm run prepare:auth
+        env:
+          SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.AUTH_TEST_SUPABASE_SECRET }}
+      - name: Install Auth browser
+        if: vars.VITE_SUPABASE_URL != ''
+        run: npx playwright install --with-deps chromium
+      - name: Verify live login, session persistence and registration form
+        if: vars.VITE_SUPABASE_URL != ''
+        run: npm run test:auth
+        env:
+          VERIFY_URL: ${{ needs.deploy.outputs.url }}
+      - name: Remove synthetic acceptance account
+        if: always() && vars.VITE_SUPABASE_URL != ''
+        run: node scripts/cleanup-auth-fixture.mjs
+        env:
+          SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.AUTH_TEST_SUPABASE_SECRET }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: web-online-verification
-          path: .artifacts/online-verification.json
+          path: |
+            .artifacts/online-verification.json
+            .artifacts/auth-verification.json

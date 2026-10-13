@@ -9,7 +9,7 @@ The default deployment is the frontend with explicit prepared examples. It is no
 - `VITE_API_URL`: HTTPS URL of your deployed backend.
 - `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`: public Auth configuration, useful if the frontend is hosted independently.
 
-Never use service-role, secret or model keys as `VITE_*` variables. Actions validates the production bundle and checks entry asset availability after deployment.
+Never use service-role, secret or model keys as `VITE_*` variables. Set the server-only `AUTH_TEST_SUPABASE_SECRET` repository secret for the dedicated demo project. When Auth variables are configured, Actions creates a synthetic signup account using an admin-generated confirmation link (no mail), confirms it through the public Auth API, tests real UI login/refresh/logout and checks the registration form, then deletes that marked test account. Traces, screenshots and videos are disabled for Auth tests. SMTP delivery and public email signup still require a separate receiving-mailbox check.
 
 ## Full deployment on a Docker server
 
@@ -19,14 +19,15 @@ Apply the supplied migration to the dedicated Supabase project once before deplo
 
 Create the `production` GitHub environment. Configure:
 
-| Secret / variable | Purpose |
-| --- | --- |
-| `DEPLOY_HOST`, `DEPLOY_USER`, optional `DEPLOY_PORT` | SSH destination |
-| `DEPLOY_SSH_KEY` | Deployment key; least-privilege server account |
-| `DEPLOY_KNOWN_HOSTS` | Verified server host key, not a runtime guessed key |
-| `SERVER_ENV` | Multiline server configuration below |
-| `VERIFY_AUTH_EMAIL`, `VERIFY_AUTH_PASSWORD` | Dedicated confirmed test account for real acceptance |
-| Variable `PRODUCTION_URL` | Public HTTPS application URL |
+| Secret / variable                                              | Purpose                                                              |
+| -------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `DEPLOY_HOST`, `DEPLOY_USER`, optional `DEPLOY_PORT`           | SSH destination                                                      |
+| `DEPLOY_SSH_KEY`                                               | Deployment key; least-privilege server account                       |
+| `DEPLOY_KNOWN_HOSTS`                                           | Verified server host key, not a runtime guessed key                  |
+| `SERVER_ENV`                                                   | Multiline server configuration below                                 |
+| `AUTH_TEST_SUPABASE_SECRET`                                    | Server-only demo Supabase key for synthetic Auth acceptance accounts |
+| Variables `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY` | Public Auth configuration for acceptance                             |
+| Variable `PRODUCTION_URL`                                      | Public HTTPS application URL                                         |
 
 `SERVER_ENV` must contain:
 
@@ -46,20 +47,23 @@ MAX_RUN_STEPS=32
 
 Configure the production Site URL and redirect allowlist in Supabase Auth. Registration may require email confirmation. Verify with a dedicated real mailbox and SMTP; a login check alone does not verify email delivery or signup.
 
-Run **Deploy production server** manually. It checks the source, ships the exact Git revision, builds server and sandbox images, starts API/Worker/web, verifies revision and runs a real acceptance task. Its server script can restore the previous release when the initial health check fails. If later functional acceptance fails, inspect the report and explicitly redeploy the known good revision; it does not claim the deployment passed.
+Run **Deploy production server** manually. It checks the source, ships the exact Git revision, builds server and sandbox images, starts API/Worker/web, verifies revision and runs Auth acceptance. Online acceptance does not start model tasks. Its server script can restore the previous release when the initial health check fails. If later functional acceptance fails, inspect the report and explicitly redeploy the known good revision; it does not claim the deployment passed.
+
+API and Worker run with the same UID (1000). A one-shot initialization service owns the project volume and build directory for that UID. The deployment script adds the Docker socket's group to the Worker. For manual Compose use, export `DOCKER_SOCKET_GID=$(stat -c '%g' /var/run/docker.sock)` on Linux. Project versions and checkpoints live in the `project_files` volume; back it up together with Supabase Postgres. Do not remove this volume between deployments.
 
 The trusted Worker has access to the Docker socket. Its child build containers do not. This deployment model targets a dedicated host; a multi-tenant public service needs stronger workload isolation and abuse controls.
 
-## Live acceptance
+## Local full-flow acceptance
 
 ```bash
-VERIFY_URL=https://your-domain.example npm run verify:online
+AUTH_FIXTURE_PATH=.runtime/registration-fixture.json npm run test:auth
+npm run test:live
 ```
 
-Supply dedicated test account credentials through the environment. The command fails if configuration is incomplete and writes a sanitized report under ignored `.artifacts/`.
+Start `npm run dev` and `npm run worker` after applying the schema and configuring the model. Use a dedicated confirmed account stored in the ignored, mode-0600 fixture file. The live browser test requires real services and fails when they are not ready. It writes a sanitized report under ignored `.artifacts/` and leaves the generated acceptance project available to inspect.
 
-Checks: frontend reachability, API readiness/revision, actual Supabase login, real model-created project, container build delivery, private artifact readback and Supabase record write/read/delete.
+Checks: UI login, guided question/answer, requirement confirmation, real model-created project, container build, iframe note creation and refresh, follow-up search functionality, Supabase metadata/records and local source/version/checkpoint readback.
 
-It creates a synthetic acceptance project and model usage may incur provider charges. No email, password, token, raw model output or internal task logs are printed in the report.
+It creates an acceptance project and uses the configured model. No email, password, token, raw model output or internal task logs are printed in the report. The optional API-only `VERIFY_URL=http://localhost:5173 npm run verify:online` check uses `VERIFY_AUTH_EMAIL` and `VERIFY_AUTH_PASSWORD` from the environment; it is separate from the UI full-flow test.
 
-After that, use the browser to verify the actual product loop: registration confirmation, login, a guided question, requirement confirmation, generated app interaction, a follow-up modification and refresh persistence. Record these separately from API checks.
+Verify real public signup and the confirmation email using a receiving mailbox before deployment. The synthetic CI account confirms API behavior and avoids sending registration mail on every build.

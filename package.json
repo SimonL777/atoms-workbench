@@ -18,6 +18,9 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "node --import tsx --test apps/server/test/*.test.ts",
     "test:e2e": "playwright test",
+    "test:auth": "playwright test --config=playwright.auth.config.ts",
+    "test:live": "node --env-file-if-exists=.env.local node_modules/@playwright/test/cli.js test --config=playwright.live.config.ts",
+    "prepare:auth": "node --env-file-if-exists=.env.local scripts/prepare-auth-fixture.mjs",
     "test:database": "node scripts/test-database.mjs",
     "verify:online": "node scripts/verify-online.mjs",
     "verify:secrets": "node scripts/check-public-files.mjs"

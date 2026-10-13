@@ -12,7 +12,8 @@ An open-source agent workspace that turns a conversation into an interactive web
 - Guided requirements discovery: one question at a time, free-text answers and optional choices.
 - Real agent tools: read/write source, isolated TypeScript/Vite builds, bounded repair and version delivery.
 - Conversation, requirement, preview, source and version panels.
-- Private Supabase project storage and owner-scoped records for generated apps.
+- Supabase project metadata and owner-scoped business records for generated apps.
+- Local project sources, immutable previews and checkpoints in per-user directories.
 - Durable task checkpoints, cancel/retry, per-project serialization and reconnecting event streams.
 - GitHub Actions CI, automatic web preview deployment and manual production server deployment.
 - Three clearly marked interactive examples that work without cloud credentials.
@@ -22,6 +23,8 @@ The examples are prepared fixtures. They do not call a model, use Supabase or im
 ## Quick start
 
 Requirements: Node.js 22.12+ (24 recommended), npm, Docker for generated project builds.
+
+If Docker Hub times out, see [alternate image sources](docs/docker-network.md).
 
 ```bash
 npm ci
@@ -48,7 +51,9 @@ Supabase credentials and model keys belong in local environment files or deploym
 
 ## Architecture
 
-React/Vite workspace → Node.js API → Supabase Auth/Postgres/Storage.
+React/Vite workspace → Node.js API → Supabase Auth/Postgres + local project files.
+
+Supabase stores accounts, conversations, requirement briefs, task state, version metadata and generated-app records. Source files, built previews and model execution checkpoints stay under `PROJECT_FILES_ROOT` (default `~/.local/share/atoms-workbench`), isolated as `users/<user-id>/projects/<project-id>/`. Back up both Postgres and this local directory. API and Worker must share it on the same host; Docker Compose provides a persistent volume.
 
 A separate Worker calls the model and runs generated React/Vite code in a non-root, resource-limited container with no network or platform credentials. The Worker is trusted and needs Docker access; generated code never gets that access.
 
@@ -69,7 +74,7 @@ npm run test:e2e
 
 See [deployment and live verification](docs/deployment.md) for required server secrets, Auth setup and a real model build check.
 
-The CI browser tests exercise the local example UI. Production verification separately checks Supabase login, actual model execution, build delivery, artifact readback and records persistence. Those are separate evidence boundaries.
+The regular CI browser tests exercise the prepared examples. Configured deployments run real Supabase login, session persistence, logout and registration-form checks with a synthetic confirmed account. Real email signup and confirmation are verified separately with a receiving mailbox. Local full-flow acceptance also calls the model, builds a project, checks preview interactions and verifies an iteration; deployment acceptance does not call a model.
 
 ## Skills and license
 

@@ -7,6 +7,7 @@ task_release="$task_root/releases/$task_sha"
 task_previous="$(readlink "$task_root/current" || true)"
 export ATOMS_ENV_FILE="$task_root/shared/server.env"
 export BUILD_SHA="$task_sha"
+export DOCKER_SOCKET_GID="$(stat -c '%g' /var/run/docker.sock)"
 cd "$task_release"
 docker compose --env-file "$ATOMS_ENV_FILE" -f deploy/compose.yml build sandbox-image api worker web
 if ! docker compose --env-file "$ATOMS_ENV_FILE" -f deploy/compose.yml up -d --wait api worker web || ! docker compose --env-file "$ATOMS_ENV_FILE" -f deploy/compose.yml exec -T api node -e "fetch('http://localhost:8787/api/health').then(async r=>{let s=await r.json();process.exit(r.ok && s.persistence && s.model && s.build===process.env.BUILD_SHA?0:1)}).catch(()=>process.exit(1))"; then

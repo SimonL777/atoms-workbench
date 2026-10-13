@@ -1,12 +1,17 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync, existsSync } from 'node:fs';
-const files = execFileSync('git', ['ls-files', '-z'], { encoding: 'utf8' })
+const files = execFileSync(
+  'git',
+  ['ls-files', '--cached', '--others', '--exclude-standard', '-z'],
+  { encoding: 'utf8' },
+)
   .split('\0')
   .filter(Boolean);
 const forbidden = files.filter(
   (file) =>
-    /^(\.env(?:\.|$)|docs\/(overall-plan|skill-reuse-research)\.md|\.artifacts\/)/.test(file) &&
-    file !== '.env.example',
+    /^(\.env(?:\.|$)|docs\/(overall-plan|skill-reuse-research)\.md|\.(?:artifacts|runtime)\/)/.test(
+      file,
+    ) && file !== '.env.example',
 );
 const secrets = [];
 for (const file of files) {
@@ -24,5 +29,5 @@ if (forbidden.length || secrets.length) {
   process.exit(1);
 }
 console.log(
-  `Checked ${files.length} tracked files: no private planning documents or reusable credentials.`,
+  `Checked ${files.length} tracked and new public files: no private planning documents or reusable credentials.`,
 );

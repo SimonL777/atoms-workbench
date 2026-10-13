@@ -21,6 +21,18 @@ test('example app accepts records and preserves them across a page refresh', asy
 test('authentication shows real configuration status, never a fake successful login', async ({
   page,
 }) => {
+  await page.route('**/api/config', (route) =>
+    route.fulfill({
+      json: {
+        supabaseUrl: '',
+        supabaseKey: '',
+        configured: false,
+        modelReady: false,
+        demoEnabled: true,
+        build: 'unconfigured-test',
+      },
+    }),
+  );
   await page.goto('/');
   await page.getByRole('button', { name: /登录 \/ 注册/ }).click();
   await expect(page.getByRole('dialog')).toBeVisible();

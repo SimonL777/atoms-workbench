@@ -351,7 +351,7 @@ export default function App() {
     link.click();
     URL.revokeObjectURL(url);
   };
-  const shownProjects = session ? projects : demoProjects;
+  const shownProjects = session && config?.configured ? projects : demoProjects;
   return (
     <div className={`app ${sidebar ? '' : 'sidebar-hidden'}`}>
       <aside className="sidebar">
@@ -379,7 +379,7 @@ export default function App() {
           </button>
         </nav>
         <div className="sidebar-section">
-          <span>{session ? '我的项目' : '体验项目'}</span>
+          <span>{session && config?.configured ? '我的项目' : '体验项目'}</span>
           <button onClick={home} aria-label="新建项目">
             <Plus size={15} />
           </button>
@@ -396,7 +396,7 @@ export default function App() {
               {currentId === p.id && <span className="project-dot" />}
             </button>
           ))}
-          {session && !projects.length && (
+          {session && config?.configured && !projects.length && (
             <p className="empty-projects">
               你的第一个想法
               <br />
@@ -412,7 +412,11 @@ export default function App() {
           </a>
           <div className="cloud-state">
             <span className={config?.configured ? 'online-dot' : 'offline-dot'} />
-            {config?.configured ? '云端已连接' : '云端待连接 · 示例可用'}
+            {config?.configured
+              ? '项目数据已连接'
+              : auth
+                ? '账户已连接 · 示例可用'
+                : '云端待连接 · 示例可用'}
           </div>
           <button
             className="profile"

@@ -43,15 +43,33 @@ jobs:
           scp -i ~/.ssh/atoms_deploy -P "$task_port" -o StrictHostKeyChecking=yes .runtime/source.tar.gz "$DEPLOY_USER@$DEPLOY_HOST:/srv/atoms-workbench/incoming/source.tar.gz"
           scp -i ~/.ssh/atoms_deploy -P "$task_port" -o StrictHostKeyChecking=yes .runtime/server.env "$DEPLOY_USER@$DEPLOY_HOST:/srv/atoms-workbench/shared/server.env"
           ssh -i ~/.ssh/atoms_deploy -p "$task_port" -o StrictHostKeyChecking=yes "$DEPLOY_USER@$DEPLOY_HOST" "chmod 600 /srv/atoms-workbench/shared/server.env; mkdir -p /srv/atoms-workbench/releases/$GITHUB_SHA; tar -xzf /srv/atoms-workbench/incoming/source.tar.gz -C /srv/atoms-workbench/releases/$GITHUB_SHA; bash /srv/atoms-workbench/releases/$GITHUB_SHA/scripts/deploy-server.sh $GITHUB_SHA"
-      - name: Verify production API and real model delivery
+      - name: Verify production frontend and Auth configuration
         run: npm run verify:online
         env:
           VERIFY_URL: ${{ vars.PRODUCTION_URL }}
           VERIFY_BUILD_SHA: ${{ github.sha }}
-          VERIFY_AUTH_EMAIL: ${{ secrets.VERIFY_AUTH_EMAIL }}
-          VERIFY_AUTH_PASSWORD: ${{ secrets.VERIFY_AUTH_PASSWORD }}
+          VERIFY_STATIC_ONLY: 'true'
+      - name: Prepare Auth acceptance account
+        run: npm run prepare:auth
+        env:
+          SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.AUTH_TEST_SUPABASE_SECRET }}
+      - run: npx playwright install --with-deps chromium
+      - name: Verify production login and registration form
+        run: npm run test:auth
+        env:
+          VERIFY_URL: ${{ vars.PRODUCTION_URL }}
+      - name: Remove synthetic acceptance account
+        if: always()
+        run: node scripts/cleanup-auth-fixture.mjs
+        env:
+          SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.AUTH_TEST_SUPABASE_SECRET }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: production-verification
-          path: .artifacts/online-verification.json
+          path: |
+            .artifacts/online-verification.json
+            .artifacts/auth-verification.json

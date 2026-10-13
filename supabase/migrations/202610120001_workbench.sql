@@ -17,7 +17,7 @@ create table public.runs (
   request_id uuid not null unique, kind text not null check (kind in ('brainstorm','build')),
   input text not null, status text not null default 'queued' check (status in ('queued','running','waiting_for_user','succeeded','failed','cancelled','interrupted')),
   phase text not null default '等待开始', question jsonb, error text,
-  context jsonb not null default '[]', files jsonb not null default '{}', plan text,
+  resume_answer jsonb, plan text,
   base_version_id uuid, spec_id uuid references public.spec_versions(id),
   lease_owner uuid, heartbeat_at timestamptz, created_at timestamptz not null default now(), finished_at timestamptz
 );
@@ -94,9 +94,8 @@ end $$;
 revoke all on function public.claim_run(uuid) from public, anon, authenticated;
 grant execute on function public.claim_run(uuid) to service_role;
 
-insert into storage.buckets (id, name, public, file_size_limit) values ('project-artifacts','project-artifacts',false,20971520)
-  on conflict (id) do nothing;
--- No public Storage policies. Artifacts are returned only by the authorized API.
+-- Source, execution checkpoints and built artifacts live on the platform host.
+-- Only their version locator and metadata are stored here; no Storage bucket is needed.
 
 create function public.publish_version(target_run uuid, target_worker uuid, version_id uuid, blob_path text, version_summary text, results jsonb)
 returns uuid language plpgsql security definer set search_path = '' as $$

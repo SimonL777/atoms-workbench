@@ -3,6 +3,7 @@
 **/dist
 .env*
 .artifacts
+.runtime
 playwright-report
 test-results
 docs/overall-plan.md

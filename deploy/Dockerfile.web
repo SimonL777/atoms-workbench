@@ -1,4 +1,6 @@
-FROM node:24-bookworm-slim AS build
+ARG NODE_IMAGE=node:24-bookworm-slim
+ARG CADDY_IMAGE=caddy:2-alpine
+FROM ${NODE_IMAGE} AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY apps/server/package.json apps/server/package.json
@@ -12,6 +14,6 @@ ENV VITE_API_URL="" VITE_DEMO_MODE="false"
 ARG BUILD_SHA=development
 ENV VITE_BUILD_SHA=${BUILD_SHA}
 RUN npm run build
-FROM caddy:2-alpine
+FROM ${CADDY_IMAGE}
 COPY --from=build /app/apps/web/dist /srv
 COPY deploy/Caddyfile /etc/caddy/Caddyfile

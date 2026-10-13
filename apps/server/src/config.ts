@@ -1,3 +1,5 @@
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 export const config = {
   port: Number(process.env.PORT || 8787),
   origin: process.env.APP_ORIGIN || 'http://localhost:5173',
@@ -10,6 +12,8 @@ export const config = {
   model: process.env.MODEL_NAME || '',
   sandboxImage: process.env.SANDBOX_IMAGE || 'atoms-sandbox:local',
   sandboxRoot: process.env.SANDBOX_ROOT || '',
+  projectRoot:
+    process.env.PROJECT_FILES_ROOT || join(homedir(), '.local', 'share', 'atoms-workbench'),
   maxSteps: Number(process.env.MAX_RUN_STEPS || 32),
   timeout: Number(process.env.RUN_TIMEOUT_MS || 300_000),
   demo: process.env.ALLOW_DEMO !== 'false',
