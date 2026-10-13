@@ -7,6 +7,7 @@ async function check(name, fn) {
   try {
     await fn();
     report.checks.push({ name, passed: true });
+    console.log(`Verified: ${name}`);
   } catch (error) {
     report.checks.push({ name, passed: false, error: error.message });
     throw error;
@@ -74,12 +75,16 @@ try {
   }
   if (process.env.VERIFY_STATIC_ONLY === 'true') {
     await check('static_entry_assets', async () => {
-      const html = await (await fetch(base)).text();
+      const html = await (await fetch(base, { signal: AbortSignal.timeout(20000) })).text();
       const matches = [...html.matchAll(/(?:src|href)="([^\"]+\.(?:js|css))"/g)].map((m) => m[1]);
       if (!matches.length) throw new Error('No entry assets');
       for (const path of matches) {
-        if (!(await fetch(new URL(path, base + '/'))).ok)
-          throw new Error('Entry asset unavailable');
+        const response = await fetch(new URL(path, base + '/'), {
+          signal: AbortSignal.timeout(20000),
+        });
+        if (!response.ok) throw new Error('Entry asset unavailable');
+        // Consume the body so verification does not leave an active download open.
+        await response.arrayBuffer();
       }
     });
   } else {
