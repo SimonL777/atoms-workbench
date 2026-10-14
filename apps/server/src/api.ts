@@ -5,6 +5,12 @@ import { z, ZodError } from 'zod';
 import { config, executionLimits, HttpError, modelReady, persistenceReady } from './config.ts';
 import { checked, db, owner } from './db.ts';
 import { fileStore } from './file-store.ts';
+import {
+  getModelSettings,
+  saveModelSettings,
+  deleteModelSettings,
+  requireUserModel,
+} from './model-settings.ts';
 const uuid = z.string().uuid();
 const input = z.string().trim().min(1).max(12000);
 const params = z.object({ id: uuid });
@@ -40,14 +46,21 @@ server.get('/api/health', async () => ({
   model: modelReady,
   executionLimits,
 }));
-server.get('/api/config', async () => ({
-  supabaseUrl: config.supabaseUrl,
-  supabaseKey: config.publicKey,
-  configured: persistenceReady && !(await db().from('projects').select('id').limit(0)).error,
-  modelReady,
-  demoEnabled: config.demo,
-  build: config.build,
-}));
+server.get('/api/config', async () => {
+  const configured =
+    persistenceReady && !(await db().from('projects').select('id').limit(0)).error;
+  return {
+    supabaseUrl: config.supabaseUrl,
+    supabaseKey: config.publicKey,
+    configured,
+    modelReady:
+      configured &&
+      modelReady &&
+      !(await db().from('user_model_configs').select('user_id').limit(0)).error,
+    demoEnabled: config.demo,
+    build: config.build,
+  };
+});
 
 async function user(request: { headers: Record<string, unknown> }) {
   const auth = request.headers.authorization;
@@ -57,6 +70,11 @@ async function user(request: { headers: Record<string, unknown> }) {
   if (error || !data.user) throw new HttpError(401, '登录已过期，请重新登录。');
   return data.user;
 }
+server.get('/api/model-config', async (req) => getModelSettings((await user(req)).id));
+server.put('/api/model-config', async (req) =>
+  saveModelSettings((await user(req)).id, req.body),
+);
+server.delete('/api/model-config', async (req) => deleteModelSettings((await user(req)).id));
 server.get('/api/projects', async (req) => {
   const actor = await user(req);
   return checked(
@@ -77,7 +95,6 @@ async function startRun(
     spec_id?: string | null;
   },
 ) {
-  if (!modelReady) throw new HttpError(503, '模型服务尚未配置。');
   const previous = checked(
     await db()
       .from('runs')
@@ -86,7 +103,10 @@ async function startRun(
       .eq('request_id', body.request_id),
   );
   if (previous[0]) return previous[0];
-  const project = checked(await db().from('projects').select('*').eq('id', projectId).single());
+  const project = checked(
+    await db().from('projects').select('*').eq('id', projectId).single(),
+  );
+  await requireUserModel(project.owner_id);
   const run = checked(
     await db()
       .from('runs')
@@ -104,7 +124,7 @@ async function startRun(
 }
 server.post('/api/projects', async (req) => {
   const actor = await user(req);
-  if (!modelReady) throw new HttpError(503, '模型服务尚未配置。');
+  await requireUserModel(actor.id);
   const body = z
     .object({ input, mode: z.enum(['brainstorm', 'build']), request_id: uuid })
     .parse(req.body);
@@ -131,14 +151,24 @@ server.post('/api/projects', async (req) => {
         .select('*')
         .single(),
     );
-  await startRun(project.id, { input: body.input, kind: body.mode, request_id: body.request_id });
+  await startRun(project.id, {
+    input: body.input,
+    kind: body.mode,
+    request_id: body.request_id,
+  });
   return project;
 });
 server.get('/api/projects/:id', async (req) => {
   const actor = await user(req);
   const { id } = params.parse(req.params);
   const project = await owner(id, actor.id);
-  const tables = ['messages', 'spec_versions', 'runs', 'project_versions', 'run_events'] as const;
+  const tables = [
+    'messages',
+    'spec_versions',
+    'runs',
+    'project_versions',
+    'run_events',
+  ] as const;
   const results = await Promise.all(
     tables.map((table) =>
       db()
@@ -154,7 +184,14 @@ server.get('/api/projects/:id', async (req) => {
     ),
   );
   const [messages, specs, runs, versions, events] = results.map(checked);
-  return { project, messages: messages.reverse(), specs, runs, versions, events: events.reverse() };
+  return {
+    project,
+    messages: messages.reverse(),
+    specs,
+    runs,
+    versions,
+    events: events.reverse(),
+  };
 });
 server.post('/api/projects/:id/messages', async (req) => {
   const actor = await user(req);
@@ -183,6 +220,7 @@ server.post('/api/projects/:id/confirm', async (req) => {
   const actor = await user(req);
   const { id } = params.parse(req.params);
   await owner(id, actor.id);
+  await requireUserModel(actor.id);
   const body = z.object({ spec_id: uuid, request_id: uuid }).parse(req.body);
   const latest = checked(
     await db()
@@ -211,6 +249,7 @@ server.post('/api/runs/:id/answer', async (req) => {
   const body = z.object({ answer: input, question_id: uuid }).parse(req.body);
   if (run.status !== 'waiting_for_user' || run.question?.id !== body.question_id)
     throw new HttpError(409, '该问题已回答或已过期。');
+  await requireUserModel(actor.id);
   const checkpoint = await fileStore.loadCheckpoint(actor.id, run.project_id, id);
   if (!checkpoint?.context.length)
     throw new HttpError(503, '本地任务检查点缺失，请检查项目文件目录。');
@@ -271,6 +310,7 @@ server.post('/api/runs/:id/retry', async (req) => {
       .eq('request_id', body.request_id),
   );
   if (existing[0]) return existing[0];
+  await requireUserModel(actor.id);
   // Reuse safe file checkpoints, not partially completed external tool calls.
   if (run.base_version_id !== project.current_version_id)
     throw new HttpError(409, '项目版本已变化，请在当前版本上重新描述修改。');
@@ -302,7 +342,12 @@ server.get('/api/projects/:id/versions/:version', async (req) => {
   const { id, version } = z.object({ id: uuid, version: uuid }).parse(req.params);
   await owner(id, actor.id);
   const item = checked(
-    await db().from('project_versions').select('*').eq('id', version).eq('project_id', id).single(),
+    await db()
+      .from('project_versions')
+      .select('*')
+      .eq('id', version)
+      .eq('project_id', id)
+      .single(),
   );
   try {
     return await fileStore.loadVersion(actor.id, id, item.id);
@@ -320,7 +365,9 @@ server.post('/api/projects/:id/restore', async (req) => {
   } catch {
     throw new HttpError(503, '本地版本产物缺失，无法恢复该版本。');
   }
-  checked(await db().rpc('restore_version', { target_project: id, target_version: version_id }));
+  checked(
+    await db().rpc('restore_version', { target_project: id, target_version: version_id }),
+  );
   return { ok: true };
 });
 server.post('/api/projects/:id/records', async (req) => {

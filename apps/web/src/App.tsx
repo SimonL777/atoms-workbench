@@ -37,12 +37,30 @@ import {
   Timer,
   CheckCircle2,
   AlertCircle,
+  Cpu,
 } from 'lucide-react';
 import { zipSync, strToU8 } from 'fflate';
-import type { Mode, Project, ProjectDetail, PublicConfig, Snapshot } from '@atoms/shared';
+import type {
+  Mode,
+  Project,
+  ProjectDetail,
+  PublicConfig,
+  Snapshot,
+  ModelSettings,
+} from '@atoms/shared';
 import { ACTIVE_STATUSES } from '@atoms/shared';
-import { auth, getConfig, request, listProjects, detail, snapshot, listen } from './client';
+import {
+  auth,
+  getConfig,
+  request,
+  listProjects,
+  detail,
+  snapshot,
+  listen,
+  ApiError,
+} from './client';
 import { demos, demoDetail, demoProjects, demoSnapshot } from './demo';
+import { ModelSettingsDialog } from './ModelSettingsDialog';
 const repo = 'https://github.com/SimonL777/atoms-workbench';
 const tabs = [
   { id: 'preview', label: '预览', icon: Monitor },
@@ -105,6 +123,8 @@ export default function App() {
   const [activity, setActivity] = useState(false);
   const [codeFile, setCodeFile] = useState('');
   const [account, setAccount] = useState(false);
+  const [modelDialog, setModelDialog] = useState(false);
+  const [userModel, setUserModel] = useState<{ userId: string; settings: ModelSettings }>();
   const frame = useRef<HTMLIFrameElement>(null);
   const bottom = useRef<HTMLDivElement>(null);
   const selectedProject = useRef<string | undefined>(undefined);
@@ -147,18 +167,52 @@ export default function App() {
     }
   }, [notice]);
   useEffect(() => {
+    let cancelled = false;
     if (session && config?.configured)
       void listProjects()
-        .then(setProjects)
-        .catch((error) => setNotice(error.message));
+        .then((value) => {
+          if (!cancelled) setProjects(value);
+        })
+        .catch((error) => {
+          if (!cancelled) setNotice(error.message);
+        });
     else setProjects([]);
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.user.id, config?.configured]);
+  useEffect(() => {
+    let cancelled = false;
+    setUserModel(undefined);
+    setModelDialog(false);
+    setAccount(false);
+    selectedProject.current = undefined;
+    setCurrent(undefined);
+    setView(undefined);
+    setVersion(undefined);
+    if (session && config?.configured) {
+      const userId = session.user.id;
+      void request<ModelSettings>('/model-config')
+        .then((settings) => {
+          if (cancelled) return;
+          setUserModel({ userId, settings });
+          if (!settings.configured) setModelDialog(true);
+        })
+        .catch((error) => {
+          if (!cancelled) setNotice((error as Error).message);
+        });
+    }
+    return () => {
+      cancelled = true;
+    };
   }, [session?.user.id, config?.configured]);
   const load = useCallback(async (id: string, select = false) => {
     if (select) selectedProject.current = id;
     if (selectedProject.current !== id) return;
     const generation = ++loadGeneration.current;
     const next = id.startsWith('demo-') ? demoDetail(id) : await detail(id);
-    if (selectedProject.current === id && loadGeneration.current === generation) setCurrent(next);
+    if (selectedProject.current === id && loadGeneration.current === generation)
+      setCurrent(next);
   }, []);
   useEffect(() => {
     setVersion(current?.project.current_version_id || undefined);
@@ -272,6 +326,10 @@ export default function App() {
       requestKey.current = { key: '', id: '' };
       if (currentId && !isDemo) await load(currentId);
     } catch (error) {
+      if (error instanceof ApiError && error.status === 428) {
+        setUserModel(undefined);
+        setModelDialog(true);
+      }
       setNotice((error as Error).message);
     } finally {
       setBusy(false);
@@ -282,8 +340,12 @@ export default function App() {
       setLogin(true);
       return false;
     }
-    if (!config?.configured || !config.modelReady) {
-      setNotice('真实开发需要连接 Supabase、模型服务和后台 Worker。你可以先体验示例项目。');
+    if (!config?.configured) {
+      setNotice('真实开发需要连接 Supabase 和后台 Worker。你可以先体验示例项目。');
+      return false;
+    }
+    if (userModel?.userId !== session.user.id || !userModel.settings.configured) {
+      setModelDialog(true);
       return false;
     }
     return true;
@@ -323,7 +385,7 @@ export default function App() {
     });
   };
   const answer = (value: string) => {
-    if (active && pending)
+    if (active && pending && ready())
       void execute(() =>
         request(`/runs/${active.id}/answer`, { answer: value, question_id: pending.id }),
       );
@@ -405,6 +467,22 @@ export default function App() {
           )}
         </div>
         <div className="sidebar-bottom">
+          {session && (
+            <button className="model-settings-entry" onClick={() => setModelDialog(true)}>
+              <Cpu size={16} />
+              <span>
+                模型配置
+                <small>
+                  {userModel?.settings.configured
+                    ? userModel.settings.modelName
+                    : '配置后开始开发'}
+                </small>
+              </span>
+              <span
+                className={userModel?.settings.configured ? 'online-dot' : 'offline-dot'}
+              />
+            </button>
+          )}
           <a href={repo} target="_blank" rel="noreferrer">
             <Github size={16} />
             GitHub 开源项目
@@ -436,6 +514,15 @@ export default function App() {
           {account && (
             <div className="account-popover">
               <p>{session?.user.email}</p>
+              <button
+                onClick={() => {
+                  setAccount(false);
+                  setModelDialog(true);
+                }}
+              >
+                <Cpu size={15} />
+                模型配置
+              </button>
               <button
                 onClick={() =>
                   void execute(async () => {
@@ -562,7 +649,11 @@ export default function App() {
               </div>
               <div className="example-grid">
                 {demos.map((item, i) => (
-                  <button className="example-card" key={item.id} onClick={() => void open(item.id)}>
+                  <button
+                    className="example-card"
+                    key={item.id}
+                    onClick={() => void open(item.id)}
+                  >
                     <div className={`example-art ${item.color}`}>
                       {i === 0 ? (
                         <div className="mini-task">
@@ -805,7 +896,9 @@ export default function App() {
                       type="button"
                       className="stop-button"
                       disabled={busy}
-                      onClick={() => void execute(() => request(`/runs/${active.id}/cancel`, {}))}
+                      onClick={() =>
+                        void execute(() => request(`/runs/${active.id}/cancel`, {}))
+                      }
                     >
                       <Square size={11} />
                       停止
@@ -816,7 +909,11 @@ export default function App() {
                     disabled={busy || !reply.trim() || (!pending && Boolean(active))}
                     aria-label="发送消息"
                   >
-                    {busy ? <LoaderCircle size={15} className="spin" /> : <ArrowUp size={17} />}
+                    {busy ? (
+                      <LoaderCircle size={15} className="spin" />
+                    ) : (
+                      <ArrowUp size={17} />
+                    )}
                   </button>
                 </div>
               </form>
@@ -1031,7 +1128,9 @@ export default function App() {
                           disabled={busy || Boolean(active)}
                           onClick={() =>
                             void execute(() =>
-                              request(`/projects/${currentId}/restore`, { version_id: item.id }),
+                              request(`/projects/${currentId}/restore`, {
+                                version_id: item.id,
+                              }),
                             )
                           }
                         >
@@ -1079,6 +1178,17 @@ export default function App() {
             setRecovery(false);
           }}
           onMessage={setNotice}
+        />
+      )}
+      {session && modelDialog && !login && (
+        <ModelSettingsDialog
+          key={session.user.id}
+          initial={userModel?.settings}
+          onClose={() => setModelDialog(false)}
+          onSaved={(settings) => {
+            setUserModel({ userId: session.user.id, settings });
+            if (settings.configured) setNotice('模型配置已保存，新的任务会使用你的模型。');
+          }}
         />
       )}
     </div>

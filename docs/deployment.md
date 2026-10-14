@@ -21,7 +21,7 @@ Never use service-role, secret or model keys as `VITE_*` variables. Set the serv
 
 Use a dedicated Linux server with Docker Compose, at least 2 CPU / 4 GB RAM, ports 80/443 open and a domain pointing to it. The deployment user must be able to use Docker and write `/srv/atoms-workbench` and `/var/lib/atoms-builds`.
 
-Apply the supplied migration to the dedicated Supabase project once before deploying. The workflow does not silently apply database migrations.
+Apply unapplied SQL migrations from `supabase/migrations/` in filename order before deploying. Existing installations need `202610140001_user_model_configs.sql` for encrypted user model settings. The workflow does not silently apply database migrations.
 
 Create the `production` GitHub environment. Configure:
 
@@ -43,9 +43,8 @@ APP_ORIGIN=https://your-domain.example
 SUPABASE_URL=
 SUPABASE_PUBLISHABLE_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
-MODEL_BASE_URL=
-MODEL_API_KEY=
-MODEL_NAME=
+MODEL_CONFIG_ENCRYPTION_KEY=
+MODEL_ALLOW_PRIVATE_ENDPOINTS=false
 ALLOW_DEMO=false
 RUN_TIMEOUT_MS=1800000
 MAX_RUN_STEPS=128
@@ -56,6 +55,10 @@ SANDBOX_CPUS=2
 ```
 
 Execution defaults are 30 minutes per active task segment, 128 model rounds and 10 builds. Each build has 5 minutes, 2 CPU, 2 GB memory and 512 processes. Waiting for a requirement answer releases the Worker and resets the active-segment timer on resume. Source capacity is 200 files, 500,000 characters per file and 128 MB per local checkpoint/version. All thresholds can be set through the server environment; see `.env.example`. Restart the API and Worker after changing them. Supabase heartbeat expiry still fences stale Workers after 90 seconds; increasing a task's duration does not extend an abandoned lease.
+
+Generate the encryption master key once with `openssl rand -base64 32`. Keep it server-only, identical on API and Worker, and backed up separately from the database. Preserve it across releases; replacing it without re-encrypting rows makes saved configurations unreadable. Users enter an OpenAI-compatible Base URL, model ID and API key after login. A blank API key retains the saved key; entering a new one replaces it. Configuration deletion only affects future task segments; an already running segment uses the configuration loaded at its start. New tasks, requirement resumes and retries load the project owner's encrypted configuration; no shared environment-model fallback is used. Configuration endpoints require Auth and return `Cache-Control: no-store`; browser database roles have no grants on the credential table.
+
+Remote model endpoints must be public HTTPS URLs with no embedded credentials/query string. Requests pin validated DNS results and reject redirects/private addresses. Enable `MODEL_ALLOW_PRIVATE_ENDPOINTS=true` only on a trusted local installation that needs LAN or localhost model services.
 
 Configure the production Site URL and redirect allowlist in Supabase Auth. Registration may require email confirmation. Verify with a dedicated real mailbox and SMTP; a login check alone does not verify email delivery or signup.
 
@@ -73,6 +76,8 @@ npm run test:live
 ```
 
 Start `npm run dev` and `npm run worker` after applying the schema and configuring the model. Use a dedicated confirmed account stored in the ignored, mode-0600 fixture file. The live browser test requires real services and fails when they are not ready. It writes a sanitized report under ignored `.artifacts/` and leaves the generated acceptance project available to inspect.
+
+The local full-flow test explicitly saves `MODEL_BASE_URL`, `MODEL_NAME` and `MODEL_API_KEY` to its test user's encrypted configuration via the API before generation. These optional environment inputs are only used by that local acceptance test, not the API/Worker or online Auth acceptance. Alternatively configure a user manually and use the API-only verifier; it requires the test account to already have saved model settings.
 
 Checks: UI login, guided question/answer, requirement confirmation, real model-created project, container build, iframe note creation and refresh, follow-up search functionality, Supabase metadata/records and local source/version/checkpoint readback.
 

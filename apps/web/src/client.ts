@@ -2,6 +2,14 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { PublicConfig, Project, ProjectDetail, Snapshot } from '@atoms/shared';
 const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 export let auth: SupabaseClient | undefined;
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
 export async function getConfig(): Promise<PublicConfig> {
   let config: PublicConfig;
   try {
@@ -34,7 +42,9 @@ export async function getConfig(): Promise<PublicConfig> {
           throw new Error('浏览器只能配置 Supabase publishable/anon key。');
       }
     }
-    auth = createClient(config.supabaseUrl, config.supabaseKey, { auth: { flowType: 'pkce' } });
+    auth = createClient(config.supabaseUrl, config.supabaseKey, {
+      auth: { flowType: 'pkce' },
+    });
   }
   return config;
 }
@@ -43,13 +53,13 @@ export async function request<T>(path: string, body?: unknown, method?: string):
   const response = await fetch(`${apiBase}/api${path}`, {
     method: method || (body ? 'POST' : 'GET'),
     headers: {
-      'Content-Type': 'application/json',
+      ...(body ? { 'Content-Type': 'application/json' } : {}),
       ...(data.session ? { Authorization: `Bearer ${data.session.access_token}` } : {}),
     },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
   const result = await response.json();
-  if (!response.ok) throw new Error(result.error || '请求未完成。');
+  if (!response.ok) throw new ApiError(response.status, result.error || '请求未完成。');
   return result;
 }
 export const listProjects = () => request<Project[]>('/projects');

@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { setTimeout as pause } from 'node:timers/promises';
 const name = `atoms-db-test-${randomUUID()}`;
@@ -37,14 +37,30 @@ try {
   if (!ready) throw new Error('PostgreSQL fixture did not start.');
   for (const file of [
     'tests/database/bootstrap.sql',
-    'supabase/migrations/202610120001_workbench.sql',
+    ...readdirSync('supabase/migrations')
+      .filter((name) => name.endsWith('.sql'))
+      .sort()
+      .map((name) => `supabase/migrations/${name}`),
     'tests/database/acceptance.sql',
+    'tests/database/model-settings.sql',
   ]) {
     const output = docker(
-      ['exec', '-i', name, 'psql', '-h', '127.0.0.1', '-v', 'ON_ERROR_STOP=1', '-U', 'postgres'],
+      [
+        'exec',
+        '-i',
+        name,
+        'psql',
+        '-h',
+        '127.0.0.1',
+        '-v',
+        'ON_ERROR_STOP=1',
+        '-U',
+        'postgres',
+      ],
       readFileSync(file, 'utf8'),
     );
-    if (file.endsWith('acceptance.sql')) console.log(output.trim());
+    if (file.startsWith('tests/database/') && !file.endsWith('bootstrap.sql'))
+      console.log(output.trim());
   }
 } finally {
   spawnSync('docker', ['rm', '-f', name], { stdio: 'ignore' });

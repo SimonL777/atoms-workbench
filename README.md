@@ -9,6 +9,7 @@ An open-source agent workspace that turns a conversation into an interactive web
 ## Features
 
 - Email registration, login, confirmation and password recovery with Supabase Auth.
+- Per-user model settings with server-side AES-256-GCM encryption and write-only API keys.
 - Guided requirements discovery: one question at a time, free-text answers and optional choices.
 - Real agent tools: read/write source, isolated TypeScript/Vite builds, bounded repair and version delivery.
 - Conversation, requirement, preview, source and version panels.
@@ -36,9 +37,9 @@ Open `http://localhost:5173`. Without credentials, explore the three example app
 
 For real projects:
 
-1. Create a dedicated Supabase project and run `supabase/migrations/202610120001_workbench.sql` once.
+1. Create a dedicated Supabase project and apply the SQL files in `supabase/migrations/` in filename order. Existing installations only need unapplied migrations.
 2. Fill `.env.local` with the Supabase URL, publishable key and server-only service-role key.
-3. Set `MODEL_BASE_URL`, `MODEL_API_KEY` and `MODEL_NAME` for a compatible chat-completions model with tool calling.
+3. Generate `MODEL_CONFIG_ENCRYPTION_KEY` once with `openssl rand -base64 32` and store it in `.env.local`. API and Worker must share this server-only key.
 4. Add local and production URLs to Supabase Auth's Site URL / Redirect URLs. Enable email confirmation and configure SMTP for your environment.
 5. Build the sandbox, then start the Worker:
 
@@ -47,7 +48,9 @@ docker build -t atoms-sandbox:local deploy/sandbox
 npm run worker
 ```
 
-Supabase credentials and model keys belong in local environment files or deployment secrets. Only a Supabase publishable/anon key may reach the browser. The UI reports incomplete configuration explicitly.
+Sign in, then enter your model Base URL, model ID and API key in **模型配置**. The provider must support OpenAI-compatible `/chat/completions` and tool calling. Each account must configure its own model; there is no fallback to a shared server model. Saving settings does not call the provider. The API key is write-only: leave it blank when editing to retain it, or enter a new key to replace it. You can delete the configuration from this dialog.
+
+The full configuration is encrypted before it reaches `user_model_configs`. Browsers cannot read or write that table directly, including their own ciphertext. Only the authenticated owner's API can return the endpoint/model summary; the API key stays server-side. The master key never belongs in Supabase, Git or `VITE_*` variables. Back it up separately: losing it requires users to re-enter their configuration. HTTPS is required for remote providers, private addresses and redirects are blocked; trusted local installations can explicitly enable `MODEL_ALLOW_PRIVATE_ENDPOINTS=true`.
 
 ## Architecture
 

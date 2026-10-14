@@ -33,6 +33,9 @@ test('confirmed Supabase account logs in, survives refresh and logs out', async 
   await expect(page.getByText('个人账户', { exact: true })).toBeVisible();
   await page.reload();
   await expect(page.getByText('个人账户', { exact: true })).toBeVisible();
+  // A new account can dismiss model onboarding while viewing projects/logging out.
+  // Auth acceptance does not save model credentials or invoke a provider.
+  await page.getByRole('button', { name: '关闭模型配置' }).click({ timeout: 5000 }).catch(() => {});
   await page.locator('.profile').click();
   await page.getByRole('button', { name: '退出登录' }).click();
   await expect(page.getByRole('button', { name: '登录 / 注册' })).toBeVisible();

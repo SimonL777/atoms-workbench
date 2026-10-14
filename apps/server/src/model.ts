@@ -1,4 +1,5 @@
-import { config } from './config.ts';
+import type { ModelConnection } from './model-settings.ts';
+import { modelRequest } from './model-transport.ts';
 export type ToolCall = {
   id: string;
   type: 'function';
@@ -63,25 +64,23 @@ export const buildTools = [
   ),
 ];
 export async function model(
+  connection: ModelConnection,
   messages: ChatMessage[],
   tools: unknown[],
   signal: AbortSignal,
 ): Promise<ChatMessage> {
-  const url = `${config.modelUrl.replace(/\/$/, '')}/chat/completions`;
-  const response = await fetch(url, {
-    method: 'POST',
-    signal,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.modelKey}` },
-    body: JSON.stringify({
-      model: config.model,
+  const result = (await modelRequest(
+    connection.baseUrl,
+    connection.apiKey,
+    {
+      model: connection.modelName,
       messages,
       tools,
       tool_choice: 'auto',
       temperature: 0.35,
-    }),
-  });
-  if (!response.ok) throw new Error(`模型调用失败（HTTP ${response.status}）。请检查服务端配置。`);
-  const result = (await response.json()) as { choices?: { message?: ChatMessage }[] };
+    },
+    signal,
+  )) as { choices?: { message?: ChatMessage }[] };
   const message = result.choices?.[0]?.message;
   if (!message || message.role !== 'assistant') throw new Error('模型没有返回有效回复。');
   return message;

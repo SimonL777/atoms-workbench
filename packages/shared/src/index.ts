@@ -80,7 +80,16 @@ export type PublicConfig = {
   supabaseKey: string;
   demoEnabled: boolean;
   configured: boolean;
+  // Model settings service readiness, not the current user's saved configuration.
   modelReady: boolean;
   build: string;
+};
+// Authenticated summary only; the saved API key is never returned to the browser.
+export type ModelSettings = {
+  configured: boolean;
+  baseUrl: string;
+  modelName: string;
+  apiKeyConfigured: boolean;
+  updatedAt: string | null;
 };
 export const ACTIVE_STATUSES: RunStatus[] = ['queued', 'running', 'waiting_for_user'];

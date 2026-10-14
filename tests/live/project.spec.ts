@@ -10,7 +10,10 @@ test('real local Agent completes guided requirements, a notes app and an iterati
   page,
 }) => {
   const fixture = JSON.parse(
-    await readFile(process.env.AUTH_FIXTURE_PATH || '.runtime/registration-fixture.json', 'utf8'),
+    await readFile(
+      process.env.AUTH_FIXTURE_PATH || '.runtime/registration-fixture.json',
+      'utf8',
+    ),
   );
   const publicClient = createClient(
     process.env.SUPABASE_URL!,
@@ -64,16 +67,37 @@ test('real local Agent completes guided requirements, a notes app and an iterati
   }
   try {
     const config = await (await fetch(`${apiRoot}/config`)).json();
-    expect(config.configured && config.modelReady, 'Supabase schema and model must be ready').toBe(
-      true,
-    );
+    expect(
+      config.configured && config.modelReady,
+      'Supabase schema and model must be ready',
+    ).toBe(true);
     const { data: login, error } = await publicClient.auth.signInWithPassword({
       email: fixture.email,
       password: fixture.password,
     });
-    expect(!error && !!login.user?.email_confirmed_at, 'Real confirmed account must log in').toBe(
+    expect(
+      !error && !!login.user?.email_confirmed_at,
+      'Real confirmed account must log in',
+    ).toBe(true);
+    if (!process.env.MODEL_BASE_URL || !process.env.MODEL_NAME || !process.env.MODEL_API_KEY)
+      throw new Error('Local full-flow acceptance requires model inputs for the test user.');
+    const settings = await fetch(`${apiRoot}/model-config`, {
+      method: 'PUT',
+      signal: AbortSignal.timeout(20_000),
+      headers: {
+        Authorization: `Bearer ${login.session!.access_token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        baseUrl: process.env.MODEL_BASE_URL,
+        modelName: process.env.MODEL_NAME,
+        apiKey: process.env.MODEL_API_KEY,
+      }),
+    });
+    expect(settings.ok(), 'Test user model must be saved through the authenticated API').toBe(
       true,
     );
+    mark('user_model_configured');
     await page.goto('/');
     await page.getByRole('button', { name: '登录 / 注册' }).click();
     const modal = page.getByRole('dialog');
@@ -92,13 +116,16 @@ test('real local Agent completes guided requirements, a notes app and an iterati
       const saved = await item();
       expect(saved.project.owner_id === fixture.user_id).toBe(true);
       const previous = JSON.parse(await readFile('.artifacts/local-full-flow.json', 'utf8'));
-      expect(previous.project_id === projectId, 'Resume only the previously verified project').toBe(
-        true,
-      );
+      expect(
+        previous.project_id === projectId,
+        'Resume only the previously verified project',
+      ).toBe(true);
       report.project_id = projectId;
       report.checks = [...new Set<string>(previous.checks)];
       report.version_ids = previous.version_ids;
-      console.log('Resuming saved acceptance project; previously completed stages are retained.');
+      console.log(
+        'Resuming saved acceptance project; previously completed stages are retained.',
+      );
     } else {
       const name = `Acceptance Notes ${randomUUID().slice(0, 8)}`;
       await page
@@ -151,7 +178,9 @@ test('real local Agent completes guided requirements, a notes app and an iterati
           .fill(
             'Use a soft green and cream design. Single user, no categories or sharing. The requirements above are final; use sensible defaults for anything else. Please save the brief now without more questions.',
           );
-        const resumed = page.waitForResponse((res) => res.url().endsWith(`/runs/${run.id}/answer`));
+        const resumed = page.waitForResponse((res) =>
+          res.url().endsWith(`/runs/${run.id}/answer`),
+        );
         await page.getByRole('button', { name: '发送消息' }).click();
         expect((await resumed).ok(), 'Question answer must resume the same run').toBe(true);
       }
@@ -216,7 +245,9 @@ test('real local Agent completes guided requirements, a notes app and an iterati
       detail.versions[0].parent_id === firstVersion,
       'Iteration must use the first version',
     ).toBe(true);
-    await expect(app.getByLabel('Search notes', { exact: true })).toBeVisible({ timeout: 30_000 });
+    await expect(app.getByLabel('Search notes', { exact: true })).toBeVisible({
+      timeout: 30_000,
+    });
     await expect(app.getByText(note, { exact: true })).toBeVisible();
     await app.getByLabel('Search notes', { exact: true }).fill('no-matching-note-xyz');
     await expect(app.getByText(note, { exact: true })).not.toBeVisible();
@@ -259,7 +290,9 @@ test('real local Agent completes guided requirements, a notes app and an iterati
         'versions',
         version,
       );
-      const local = JSON.parse(await readFile(join(base, 'snapshot.json'), 'utf8')) as Snapshot;
+      const local = JSON.parse(
+        await readFile(join(base, 'snapshot.json'), 'utf8'),
+      ) as Snapshot;
       const readback = await api<Snapshot>(`/projects/${projectId}/versions/${version}`);
       expect(
         JSON.stringify(local) === JSON.stringify(readback),

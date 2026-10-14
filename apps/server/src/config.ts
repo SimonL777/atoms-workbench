@@ -13,9 +13,9 @@ export const config = {
   publicKey:
     process.env.SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY || '',
   serviceKey: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
-  modelUrl: process.env.MODEL_BASE_URL || '',
-  modelKey: process.env.MODEL_API_KEY || '',
-  model: process.env.MODEL_NAME || '',
+  modelEncryptionKey: process.env.MODEL_CONFIG_ENCRYPTION_KEY || '',
+  // Opt-in for a trusted local installation; public servers should leave this false.
+  allowPrivateModels: process.env.MODEL_ALLOW_PRIVATE_ENDPOINTS === 'true',
   sandboxImage: process.env.SANDBOX_IMAGE || 'atoms-sandbox:local',
   sandboxRoot: process.env.SANDBOX_ROOT || '',
   projectRoot:
@@ -57,7 +57,9 @@ export const executionLimits = {
 let elevatedPublicKey = config.publicKey.startsWith('sb_secret_');
 if (config.publicKey.startsWith('eyJ')) {
   try {
-    const payload = JSON.parse(Buffer.from(config.publicKey.split('.')[1], 'base64url').toString());
+    const payload = JSON.parse(
+      Buffer.from(config.publicKey.split('.')[1], 'base64url').toString(),
+    );
     elevatedPublicKey ||= payload.role === 'service_role';
   } catch {
     // The Auth provider will reject malformed publishable keys; never log their value.
@@ -68,7 +70,14 @@ if (elevatedPublicKey)
 export const persistenceReady = Boolean(
   config.supabaseUrl && config.publicKey && config.serviceKey,
 );
-export const modelReady = Boolean(config.modelUrl && config.modelKey && config.model);
+if (
+  config.modelEncryptionKey &&
+  (!/^[A-Za-z0-9+/]{43}=$/.test(config.modelEncryptionKey) ||
+    Buffer.from(config.modelEncryptionKey, 'base64').length !== 32)
+)
+  throw new Error('MODEL_CONFIG_ENCRYPTION_KEY must be a base64-encoded 32-byte key.');
+// Service readiness only. Each signed-in user must configure their own model.
+export const modelReady = Boolean(config.modelEncryptionKey);
 export class HttpError extends Error {
   constructor(
     public statusCode: number,

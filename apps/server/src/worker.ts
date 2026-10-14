@@ -10,6 +10,7 @@ import { build, type BuildResult } from './sandbox.ts';
 import { safeFile, sourceHash, redactError } from './guards.ts';
 import { template } from './template.ts';
 import { fileStore, type Checkpoint } from './file-store.ts';
+import { requireUserModel } from './model-settings.ts';
 type Task = Run & {
   lease_owner: string;
   resume_answer?: { question_id: string; tool_call_id: string; answer: string } | null;
@@ -120,6 +121,9 @@ async function execute(task: Task) {
       context = checkpoint.context;
       answeredQuestionId = checkpoint.answeredQuestionId;
     }
+    // Preserve saved progress even if settings were removed while this task was queued.
+    // Load by project owner at execution/resume time; credentials never enter a checkpoint.
+    const connection = await requireUserModel(project.owner_id);
     if (task.resume_answer) {
       if (!context.length) throw new Error('本地任务检查点缺失，无法恢复提问。');
       if (answeredQuestionId !== task.resume_answer.question_id) {
@@ -181,6 +185,7 @@ async function execute(task: Task) {
     for (let step = 0; step < config.maxSteps; step++) {
       if (controller.signal.aborted) throw controller.signal.reason;
       const answer = await model(
+        connection,
         context,
         task.kind === 'brainstorm' ? brainstormTools : buildTools,
         controller.signal,
@@ -397,7 +402,7 @@ async function execute(task: Task) {
 }
 if (!persistenceReady || !modelReady) {
   console.error(
-    'Worker requires Supabase and model configuration. Fill .env.local before starting.',
+    'Worker requires Supabase and MODEL_CONFIG_ENCRYPTION_KEY. Configure the server before starting.',
   );
   process.exit(1);
 }
