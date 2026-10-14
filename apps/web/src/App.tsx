@@ -125,6 +125,10 @@ export default function App() {
   const [account, setAccount] = useState(false);
   const [modelDialog, setModelDialog] = useState(false);
   const [userModel, setUserModel] = useState<{ userId: string; settings: ModelSettings }>();
+  const sessionUserId = useRef(session?.user.id);
+  sessionUserId.current = session?.user.id;
+  const personalModel =
+    userModel?.userId === session?.user.id ? userModel?.settings : undefined;
   const frame = useRef<HTMLIFrameElement>(null);
   const bottom = useRef<HTMLDivElement>(null);
   const selectedProject = useRef<string | undefined>(undefined);
@@ -473,14 +477,10 @@ export default function App() {
               <span>
                 模型配置
                 <small>
-                  {userModel?.settings.configured
-                    ? userModel.settings.modelName
-                    : '配置后开始开发'}
+                  {personalModel?.configured ? personalModel.modelName : '配置后开始开发'}
                 </small>
               </span>
-              <span
-                className={userModel?.settings.configured ? 'online-dot' : 'offline-dot'}
-              />
+              <span className={personalModel?.configured ? 'online-dot' : 'offline-dot'} />
             </button>
           )}
           <a href={repo} target="_blank" rel="noreferrer">
@@ -1183,9 +1183,13 @@ export default function App() {
       {session && modelDialog && !login && (
         <ModelSettingsDialog
           key={session.user.id}
-          initial={userModel?.settings}
-          onClose={() => setModelDialog(false)}
+          userId={session.user.id}
+          initial={personalModel}
+          onClose={() => {
+            if (sessionUserId.current === session.user.id) setModelDialog(false);
+          }}
           onSaved={(settings) => {
+            if (sessionUserId.current !== session.user.id) return;
             setUserModel({ userId: session.user.id, settings });
             if (settings.configured) setNotice('模型配置已保存，新的任务会使用你的模型。');
           }}

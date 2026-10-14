@@ -20,6 +20,18 @@ test('login prompts for a personal model; editing keeps the key write-only and d
     ).toString('base64url'),
     'test-only',
   ].join('.');
+  const otherUser = {
+    ...user,
+    id: '00000000-0000-4000-8000-000000000002',
+    email: 'other-model@example.com',
+  };
+  const otherJwt = [
+    jwt.split('.')[0],
+    Buffer.from(
+      JSON.stringify({ sub: otherUser.id, exp: Math.floor(Date.now() / 1000) + 3600 }),
+    ).toString('base64url'),
+    'test-only',
+  ].join('.');
   let saved = {
     configured: false,
     baseUrl: '',
@@ -42,24 +54,39 @@ test('login prompts for a personal model; editing keeps the key write-only and d
     }),
   );
   await page.route('https://model-ui.supabase.co/auth/v1/**', (route) => {
-    if (route.request().url().includes('/token'))
+    if (route.request().url().includes('/token')) {
+      const isOther = route.request().postDataJSON()?.email === otherUser.email;
       return route.fulfill({
         json: {
-          access_token: jwt,
+          access_token: isOther ? otherJwt : jwt,
           token_type: 'bearer',
           refresh_token: 'test-refresh',
           expires_in: 3600,
-          user,
+          user: isOther ? otherUser : user,
         },
       });
+    }
     if (route.request().url().includes('/logout')) return route.fulfill({ status: 204 });
-    return route.fulfill({ json: user });
+    return route.fulfill({
+      json:
+        route.request().headers().authorization === `Bearer ${otherJwt}` ? otherUser : user,
+    });
   });
   await page.route('**/api/projects', (route) => {
     if (route.request().method() === 'POST') creations++;
     return route.fulfill({ json: [] });
   });
   await page.route('**/api/model-config', (route) => {
+    if (route.request().headers().authorization === `Bearer ${otherJwt}`)
+      return route.fulfill({
+        json: {
+          configured: false,
+          baseUrl: '',
+          modelName: '',
+          apiKeyConfigured: false,
+          updatedAt: null,
+        },
+      });
     if (route.request().method() === 'PUT') {
       const value = route.request().postDataJSON();
       updates.push(value);
@@ -112,7 +139,28 @@ test('login prompts for a personal model; editing keeps the key write-only and d
   await page.reload();
   await expect(page.locator('.model-settings-entry')).toContainText('updated-model');
   await expect(page.locator('.model-modal')).toHaveCount(0);
-  expect(await page.evaluate(() => JSON.stringify(localStorage))).not.toContain('synthetic-ui-key');
+  expect(await page.evaluate(() => JSON.stringify(localStorage))).not.toContain(
+    'synthetic-ui-key',
+  );
+  await page.locator('.profile').click();
+  await page.getByRole('button', { name: '退出登录' }).click();
+  await page.getByRole('button', { name: '登录 / 注册' }).click();
+  await login.getByLabel('邮箱', { exact: true }).fill(otherUser.email);
+  await login.getByLabel('密码', { exact: true }).fill('test-ui-password');
+  await login.getByRole('button', { name: '登录', exact: true }).click();
+  const otherModal = page.getByRole('dialog', { name: '连接你的模型' });
+  await expect(otherModal).toBeVisible();
+  await expect(otherModal.getByLabel('模型服务 Base URL')).toHaveValue('');
+  await expect(otherModal.getByLabel('模型名称', { exact: true })).toHaveValue('');
+  await expect(page.locator('.model-settings-entry')).not.toContainText('updated-model');
+  await page.getByRole('button', { name: '关闭模型配置' }).click();
+  await page.locator('.profile').click();
+  await page.getByRole('button', { name: '退出登录' }).click();
+  await page.getByRole('button', { name: '登录 / 注册' }).click();
+  await login.getByLabel('邮箱', { exact: true }).fill(user.email);
+  await login.getByLabel('密码', { exact: true }).fill('test-ui-password');
+  await login.getByRole('button', { name: '登录', exact: true }).click();
+  await expect(page.locator('.model-settings-entry')).toContainText('updated-model');
   await page.locator('.model-settings-entry').click();
   await modal.getByRole('button', { name: '删除配置', exact: true }).click();
   await modal.getByRole('button', { name: '确认删除', exact: true }).click();

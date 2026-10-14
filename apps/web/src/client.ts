@@ -48,8 +48,15 @@ export async function getConfig(): Promise<PublicConfig> {
   }
   return config;
 }
-export async function request<T>(path: string, body?: unknown, method?: string): Promise<T> {
+export async function request<T>(
+  path: string,
+  body?: unknown,
+  method?: string,
+  expectedUserId?: string,
+): Promise<T> {
   const { data } = auth ? await auth.auth.getSession() : { data: { session: null } };
+  if (expectedUserId && data.session?.user.id !== expectedUserId)
+    throw new ApiError(401, '账户已切换，请在当前账号重新打开模型配置。');
   const response = await fetch(`${apiBase}/api${path}`, {
     method: method || (body ? 'POST' : 'GET'),
     headers: {

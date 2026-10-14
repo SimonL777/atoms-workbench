@@ -4,10 +4,12 @@ import type { ModelSettings } from '@atoms/shared';
 import { request } from './client';
 
 export function ModelSettingsDialog({
+  userId,
   initial,
   onClose,
   onSaved,
 }: {
+  userId: string;
   initial?: ModelSettings;
   onClose: () => void;
   onSaved: (value: ModelSettings) => void;
@@ -23,7 +25,7 @@ export function ModelSettingsDialog({
   useEffect(() => {
     if (initial) return;
     let cancelled = false;
-    void request<ModelSettings>('/model-config')
+    void request<ModelSettings>('/model-config', undefined, 'GET', userId)
       .then((value) => {
         if (cancelled) return;
         setSaved(value);
@@ -39,7 +41,7 @@ export function ModelSettingsDialog({
     return () => {
       cancelled = true;
     };
-  }, [initial]);
+  }, [initial, userId]);
   useEffect(() => {
     const escape = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && !busy) onClose();
@@ -60,6 +62,7 @@ export function ModelSettingsDialog({
           ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
         },
         'PUT',
+        userId,
       );
       setApiKey('');
       onSaved(value);
@@ -74,7 +77,7 @@ export function ModelSettingsDialog({
     setBusy(true);
     setFeedback('');
     try {
-      await request('/model-config', undefined, 'DELETE');
+      await request('/model-config', undefined, 'DELETE', userId);
       const empty: ModelSettings = {
         configured: false,
         baseUrl: '',
@@ -108,14 +111,21 @@ export function ModelSettingsDialog({
         aria-modal="true"
         aria-labelledby="model-settings-title"
       >
-        <button className="modal-close" onClick={onClose} disabled={busy} aria-label="关闭模型配置">
+        <button
+          className="modal-close"
+          onClick={onClose}
+          disabled={busy}
+          aria-label="关闭模型配置"
+        >
           <X size={18} />
         </button>
         <div className="model-settings-icon">
           <Cpu size={25} />
         </div>
         <span className="section-kicker">YOUR MODEL, YOUR WORKSPACE</span>
-        <h2 id="model-settings-title">{saved?.configured ? '管理你的模型' : '连接你的模型'}</h2>
+        <h2 id="model-settings-title">
+          {saved?.configured ? '管理你的模型' : '连接你的模型'}
+        </h2>
         <p>用你自己的模型服务开始开发。配置仅属于当前账号，可在不同设备登录后使用。</p>
         <div className={`model-settings-status ${saved?.configured ? 'connected' : ''}`}>
           <span className={saved?.configured ? 'online-dot' : 'offline-dot'} />
@@ -159,7 +169,9 @@ export function ModelSettingsDialog({
               value={apiKey}
               onChange={(event) => setApiKey(event.target.value)}
               placeholder={
-                saved?.apiKeyConfigured ? '已安全保存；留空保留，填写则替换' : '粘贴你的 API Key'
+                saved?.apiKeyConfigured
+                  ? '已安全保存；留空保留，填写则替换'
+                  : '粘贴你的 API Key'
               }
               maxLength={8192}
               disabled={busy || loading}
@@ -169,7 +181,9 @@ export function ModelSettingsDialog({
           </label>
           <div className="model-security-note">
             <ShieldCheck size={16} />
-            <span>服务端加密后存入数据库。已保存的 API Key 不会读回网页，保存不会调用模型。</span>
+            <span>
+              服务端加密后存入数据库。已保存的 API Key 不会读回网页，保存不会调用模型。
+            </span>
           </div>
           {feedback && (
             <div className="auth-feedback" role="status">
@@ -190,7 +204,11 @@ export function ModelSettingsDialog({
                   <button disabled={busy} onClick={() => setConfirmDelete(false)}>
                     取消
                   </button>
-                  <button className="model-delete" disabled={busy} onClick={() => void remove()}>
+                  <button
+                    className="model-delete"
+                    disabled={busy}
+                    onClick={() => void remove()}
+                  >
                     确认删除
                   </button>
                 </div>
